@@ -1,0 +1,41 @@
+@API_Payment_Asaas_HostAddress = http://localhost:5020
+@asaasWebhookToken = {{$dotenv ASAAS_WEBHOOK_TOKEN}}
+
+### List payments
+GET {{API_Payment_Asaas_HostAddress}}/api/payments
+Accept: application/json
+
+### Create a hosted full-value payment
+POST {{API_Payment_Asaas_HostAddress}}/api/payments
+Content-Type: application/json
+
+{
+	"name": "Sandbox Customer",
+	"email": "customer@example.com",
+	"value": 89.90,
+	"dueDate": "2026-10-20",
+	"description": "POC payment",
+	"paymentMethod": "undefined",
+	"checkoutMode": "hosted"
+}
+
+### Get one payment by local ID
+GET {{API_Payment_Asaas_HostAddress}}/api/payments/{{paymentId}}
+Accept: application/json
+
+### Receive an Asaas event (use a real payment event when testing processing)
+POST {{API_Payment_Asaas_HostAddress}}/api/webhooks/asaas
+asaas-access-token: {{asaasWebhookToken}}
+Content-Type: application/json
+
+{
+	"id": "evt_replace_with_real_event_id",
+	"event": "PAYMENT_CONFIRMED",
+	"payment": {
+		"id": "pay_replace_with_real_payment_id",
+		"status": "CONFIRMED",
+		"billingType": "PIX"
+	}
+}
+
+###
