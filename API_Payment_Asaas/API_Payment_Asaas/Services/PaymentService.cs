@@ -1,64 +1,61 @@
 using API_Payment_Asaas.Data;
 using API_Payment_Asaas.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace API_Payment_Asaas.Services;
 
 public sealed class PaymentService(
     PaymentDbContext dbContext,
     IAsaasClient asaasClient,
-    ILogger<PaymentService> logger) : IPaymentService
+    ICustomerService customerService,
+    ICardTokenProtector cardTokenProtector,
+    IHttpContextAccessor httpContextAccessor,
+    IOptions<AsaasOptions> asaasOptions,
+    ILogger<PaymentService> logger,
+    IMemoryCache memoryCache) : IPaymentService
 {
     public async Task<PaymentResponse> CreateAsync(CreatePaymentRequest request, CancellationToken cancellationToken)
     {
         if (request.DueDate < DateOnly.FromDateTime(DateTime.UtcNow))
         {
-            throw new ArgumentException("Due date cannot be in the past.");
+            throw new ArgumentException("O vencimento não pode estar no passado.");
         }
 
-        if (request.CheckoutMode == CheckoutMode.Direct && request.PaymentMethod == PaymentMethod.Undefined)
+        var paymentMethod = request.PaymentMethod ?? throw new ArgumentException("Escolha um meio de pagamento.");
+        if (paymentMethod is not (PaymentMethod.CreditCard or PaymentMethod.Pix or PaymentMethod.Boleto))
         {
-            throw new ArgumentException("Choose a payment method for direct checkout.");
+            throw new ArgumentException("Escolha cartão de crédito, PIX ou boleto.");
         }
 
-        if (request.CheckoutMode == CheckoutMode.Direct && request.PaymentMethod == PaymentMethod.CreditCard)
+        if (request.SaveCardForFutureUse && paymentMethod != PaymentMethod.CreditCard)
         {
-            throw new ArgumentException("Use hosted checkout for credit-card payments until direct card tokenization is configured.");
+            throw new ArgumentException("Somente cartões podem ser salvos para uso futuro.");
         }
 
-        var billingType = request.CheckoutMode == CheckoutMode.Hosted
-            ? PaymentMethod.Undefined
-            : request.PaymentMethod;
+        var validatedCard = paymentMethod == PaymentMethod.CreditCard
+            ? CreditCardValidation.Validate(request.CreditCard, request.CreditCardHolderInfo)
+            : null;
+        var remoteIp = paymentMethod == PaymentMethod.CreditCard ? GetRemoteIp() : null;
 
-        var customer = await dbContext.Customers
-            .FirstOrDefaultAsync(candidate => candidate.Email == request.Email, cancellationToken);
-
-        if (customer is null)
-        {
-            var asaasCustomer = await asaasClient.CreateCustomerAsync(
-                request.Name,
-                request.Email,
-                request.CpfCnpj,
-                request.Phone,
-                cancellationToken);
-
-            customer = new Customer
-            {
-                AsaasCustomerId = asaasCustomer.Id,
-                Name = request.Name,
-                Email = request.Email,
-                CpfCnpj = request.CpfCnpj,
-                Phone = request.Phone
-            };
-            dbContext.Customers.Add(customer);
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
+        var customer = await customerService.FindOrCreateAndSyncAsync(new CustomerProfile(
+            request.Name,
+            request.Email,
+            request.CpfCnpj,
+            request.Phone,
+            request.PostalCode,
+            request.Address,
+            request.AddressNumber,
+            request.AddressComplement,
+            request.Province), cancellationToken);
 
         var payment = new Payment
         {
             CustomerId = customer.Id,
             Value = request.Value,
-            PaymentMethod = billingType,
+            PaymentMethod = paymentMethod,
             Status = "CREATING",
             DueDate = request.DueDate
         };
@@ -66,15 +63,33 @@ public sealed class PaymentService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         AsaasPaymentResult asaasPayment;
+        AsaasTokenizedCardResult? tokenizedCard = null;
         try
         {
-            asaasPayment = await asaasClient.CreatePaymentAsync(
+            if (request.SaveCardForFutureUse && validatedCard is not null)
+            {
+                tokenizedCard = await asaasClient.TokenizeCardAsync(
+                    customer.AsaasCustomerId,
+                    validatedCard.Card,
+                    validatedCard.Holder,
+                    remoteIp!,
+                    cancellationToken);
+            }
+
+            asaasPayment = await asaasClient.CreateDirectPaymentAsync(
                 payment.Id,
                 customer.AsaasCustomerId,
                 payment.Value,
                 payment.DueDate,
-                billingType,
                 request.Description,
+                paymentMethod,
+                validatedCard?.Card,
+                validatedCard?.Holder,
+                tokenizedCard?.Token,
+                remoteIp,
+                request.DeviceInfo,
+                asaasOptions.Value.EnableThreeDSecure,
+                new Uri(new Uri(asaasOptions.Value.FrontendBaseUrl.TrimEnd('/') + "/"), $"payments/{payment.Id}").ToString(),
                 cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -87,26 +102,40 @@ public sealed class PaymentService(
         payment.AsaasPaymentId = asaasPayment.Id;
         payment.Status = asaasPayment.Status;
         payment.PaymentMethod = ParsePaymentMethod(asaasPayment.BillingType);
-        payment.InvoiceUrl = asaasPayment.InvoiceUrl;
         payment.BankSlipUrl = asaasPayment.BankSlipUrl;
+        if (request.SaveCardForFutureUse && tokenizedCard is not null)
+        {
+            var protectedCard = cardTokenProtector.Protect(customer.Id, tokenizedCard);
+            var alreadyStored = await dbContext.AsaasStoredCards.AnyAsync(
+                storedCard => storedCard.TokenFingerprint == protectedCard.TokenFingerprint,
+                cancellationToken);
+            if (!alreadyStored)
+            {
+                dbContext.AsaasStoredCards.Add(protectedCard);
+            }
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
 
         if (payment.PaymentMethod == PaymentMethod.Pix)
         {
+            await FetchPixInstructionsAsync(payment, cancellationToken);
+        }
+        else if (payment.PaymentMethod == PaymentMethod.Boleto)
+        {
             try
             {
-                var pix = await asaasClient.GetPixQrCodeAsync(asaasPayment.Id, cancellationToken);
-                payment.PixCopyPaste = pix.Payload;
-                payment.PixQrCodeUrl = pix.EncodedImage is null ? null : $"data:image/png;base64,{pix.EncodedImage}";
+                payment.BankSlipIdentificationField = await asaasClient.GetBoletoIdentificationFieldAsync(
+                    asaasPayment.Id,
+                    cancellationToken);
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                logger.LogWarning(exception, "Payment {PaymentId} was created but Pix instructions could not be retrieved.", payment.Id);
+                logger.LogWarning(exception, "Payment {PaymentId} was created but its boleto line could not be retrieved.", payment.Id);
             }
         }
 
-        return ToResponse(payment);
+        return ToResponse(payment, asaasPayment.ThreeDSecureChallengeUrl);
     }
 
     public async Task<IReadOnlyList<PaymentResponse>> GetAllAsync(CancellationToken cancellationToken)
@@ -120,10 +149,11 @@ public sealed class PaymentService(
                 payment.PaymentMethod,
                 payment.Status,
                 payment.DueDate,
-                payment.InvoiceUrl,
                 payment.BankSlipUrl,
+                payment.BankSlipIdentificationField,
                 payment.PixCopyPaste,
                 payment.PixQrCodeUrl,
+                null,
                 payment.Invoice == null ? null : payment.Invoice.Status,
                 payment.Invoice == null ? null : payment.Invoice.PdfUrl,
                 payment.Invoice == null ? null : payment.Invoice.XmlUrl,
@@ -135,11 +165,47 @@ public sealed class PaymentService(
 
     public async Task<PaymentResponse?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
-        var payment = await dbContext.Payments.AsNoTracking()
+        var payment = await dbContext.Payments
             .Include(candidate => candidate.Invoice)
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return payment is null ? null : ToResponse(payment);
+        if (payment is null)
+        {
+            return null;
+        }
+
+        var retryKey = $"pix-instructions-retry:{payment.Id}";
+        if (payment.PaymentMethod == PaymentMethod.Pix &&
+            string.IsNullOrWhiteSpace(payment.PixCopyPaste) &&
+            string.IsNullOrWhiteSpace(payment.PixQrCodeUrl) &&
+            !string.IsNullOrWhiteSpace(payment.AsaasPaymentId) &&
+            !memoryCache.TryGetValue(retryKey, out _))
+        {
+            memoryCache.Set(retryKey, true, TimeSpan.FromMinutes(1));
+            await FetchPixInstructionsAsync(payment, cancellationToken);
+        }
+
+        return ToResponse(payment);
+    }
+
+    private async Task FetchPixInstructionsAsync(Payment payment, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(payment.AsaasPaymentId))
+        {
+            return;
+        }
+
+        try
+        {
+            var pix = await asaasClient.GetPixQrCodeAsync(payment.AsaasPaymentId, cancellationToken);
+            payment.PixCopyPaste = pix.Payload;
+            payment.PixQrCodeUrl = pix.EncodedImage is null ? null : $"data:image/png;base64,{pix.EncodedImage}";
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Payment {PaymentId} was created but Pix instructions could not be retrieved.", payment.Id);
+        }
     }
 
     private static PaymentMethod ParsePaymentMethod(string billingType) => billingType switch
@@ -150,18 +216,27 @@ public sealed class PaymentService(
         _ => PaymentMethod.Undefined
     };
 
-    private static PaymentResponse ToResponse(Payment payment) => new(
+    private PaymentResponse ToResponse(Payment payment, string? threeDSecureChallengeUrl = null) => new(
         payment.Id,
         payment.Value,
         payment.PaymentMethod,
         payment.Status,
         payment.DueDate,
-        payment.InvoiceUrl,
         payment.BankSlipUrl,
+        payment.BankSlipIdentificationField,
         payment.PixCopyPaste,
         payment.PixQrCodeUrl,
+        threeDSecureChallengeUrl,
         payment.Invoice?.Status,
         payment.Invoice?.PdfUrl,
         payment.Invoice?.XmlUrl,
         payment.CreatedAt);
+
+    private string GetRemoteIp()
+    {
+        var address = httpContextAccessor.HttpContext?.Connection.RemoteIpAddress
+            ?? throw new InvalidOperationException("Não foi possível identificar o IP do pagador.");
+        return (address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address).ToString();
+    }
+
 }

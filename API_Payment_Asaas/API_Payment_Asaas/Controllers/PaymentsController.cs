@@ -7,7 +7,7 @@ namespace API_Payment_Asaas.Controllers;
 [Route("api/payments")]
 public sealed class PaymentsController(IPaymentService paymentService) : ControllerBase
 {
-    /// <summary>Creates a full-value payment using Asaas checkout or a selected method.</summary>
+    /// <summary>Creates a full-value payment with an explicit method and in-platform instructions.</summary>
     [HttpPost]
     [ProducesResponseType<PaymentResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]

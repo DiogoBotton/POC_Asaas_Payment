@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import './PaymentsApp.css'
 import App from './App.tsx'
-import { NewPaymentPage, PaymentDetailsPage, PaymentsPage } from './PaymentsApp.tsx'
+import { CustomersPage, NewPaymentPage, NewSubscriptionPage, PaymentDetailsPage, PaymentsPage, SubscriptionsPage } from './PaymentsApp.tsx'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 2_000, retry: 1 } },
@@ -17,6 +17,9 @@ const router = createBrowserRouter([{
     { index: true, element: <PaymentsPage /> },
     { path: 'payments/new', element: <NewPaymentPage /> },
     { path: 'payments/:id', element: <PaymentDetailsPage /> },
+    { path: 'customers', element: <CustomersPage /> },
+    { path: 'subscriptions', element: <SubscriptionsPage /> },
+    { path: 'subscriptions/new', element: <NewSubscriptionPage /> },
   ],
 }])
 

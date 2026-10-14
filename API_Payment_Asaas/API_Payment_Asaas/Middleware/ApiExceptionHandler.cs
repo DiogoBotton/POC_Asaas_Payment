@@ -14,14 +14,26 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (statusCode, title, detail) = exception switch
         {
-            KeyNotFoundException => (StatusCodes.Status404NotFound, "Not found", "The requested resource was not found."),
-            ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request", exception.Message),
-            AsaasApiException => (StatusCodes.Status502BadGateway, "Payment provider error", "The payment provider could not complete the request."),
-            InvalidOperationException => (StatusCodes.Status503ServiceUnavailable, "Service unavailable", "A required integration is not configured."),
-            _ => (StatusCodes.Status500InternalServerError, "Server error", "An unexpected error occurred.")
+            KeyNotFoundException => (StatusCodes.Status404NotFound, "Não encontrado", "O recurso solicitado não foi encontrado."),
+            ArgumentException => (StatusCodes.Status400BadRequest, "Requisição inválida", exception.Message),
+            AsaasApiException => (StatusCodes.Status502BadGateway, "Falha no provedor de pagamentos", "A Asaas não conseguiu concluir a operação."),
+            InvalidOperationException => (StatusCodes.Status503ServiceUnavailable, "Serviço indisponível", "A operação não pode ser concluída no momento."),
+            _ => (StatusCodes.Status500InternalServerError, "Erro no servidor", "Ocorreu um erro inesperado.")
         };
 
-        logger.LogWarning(exception, "Request failed with status {StatusCode}.", statusCode);
+        if (exception is AsaasApiException asaasException)
+        {
+            logger.LogWarning(
+                exception,
+                "Request failed with status {StatusCode}; Asaas returned {ProviderStatusCode} with error codes {ProviderErrorCodes}.",
+                statusCode,
+                (int)asaasException.StatusCode,
+                string.Join(",", asaasException.ErrorCodes));
+        }
+        else
+        {
+            logger.LogWarning(exception, "Request failed with status {StatusCode}.", statusCode);
+        }
         httpContext.Response.StatusCode = statusCode;
         await httpContext.Response.WriteAsJsonAsync(new ProblemDetails
         {

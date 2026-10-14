@@ -5,19 +5,113 @@
 GET {{API_Payment_Asaas_HostAddress}}/api/payments
 Accept: application/json
 
-### Create a hosted full-value payment
+### Create a one-off PIX payment
 POST {{API_Payment_Asaas_HostAddress}}/api/payments
 Content-Type: application/json
 
 {
 	"name": "Sandbox Customer",
 	"email": "customer@example.com",
+	"cpfCnpj": "12345678901",
+	"postalCode": "01310-000",
+	"address": "Av. Paulista",
+	"addressNumber": "150",
+	"addressComplement": "Sala 201",
+	"province": "Bela Vista",
 	"value": 89.90,
+	"paymentMethod": "pix",
 	"dueDate": "2026-10-20",
-	"description": "POC payment",
-	"paymentMethod": "undefined",
-	"checkoutMode": "hosted"
+	"description": "POC PIX payment"
 }
+
+### Create a one-off boleto payment
+POST {{API_Payment_Asaas_HostAddress}}/api/payments
+Content-Type: application/json
+
+{
+	"name": "Sandbox Customer",
+	"email": "customer@example.com",
+	"cpfCnpj": "12345678901",
+	"postalCode": "01310-000",
+	"address": "Av. Paulista",
+	"addressNumber": "150",
+	"addressComplement": "Sala 201",
+	"province": "Bela Vista",
+	"value": 89.90,
+	"paymentMethod": "boleto",
+	"dueDate": "2026-10-20",
+	"description": "POC boleto payment"
+}
+
+### Create a one-off credit-card payment (Sandbox only; supply sandbox values locally)
+POST {{API_Payment_Asaas_HostAddress}}/api/payments
+Content-Type: application/json
+
+{
+	"name": "Sandbox Customer",
+	"email": "customer@example.com",
+	"cpfCnpj": "12345678901",
+	"postalCode": "01310-000",
+	"address": "Av. Paulista",
+	"addressNumber": "150",
+	"addressComplement": "Sala 201",
+	"province": "Bela Vista",
+	"value": 89.90,
+	"paymentMethod": "creditCard",
+	"dueDate": "2026-10-20",
+	"description": "POC card payment",
+	"saveCardForFutureUse": false,
+	"creditCard": {
+		"holderName": "Sandbox Customer",
+		"number": "{{$dotenv ASAAS_SANDBOX_CARD_NUMBER}}",
+		"expiryMonth": "{{$dotenv ASAAS_SANDBOX_CARD_EXPIRY_MONTH}}",
+		"expiryYear": "{{$dotenv ASAAS_SANDBOX_CARD_EXPIRY_YEAR}}",
+		"ccv": "{{$dotenv ASAAS_SANDBOX_CARD_CCV}}"
+	},
+	"creditCardHolderInfo": {
+		"name": "Sandbox Customer",
+		"email": "customer@example.com",
+		"cpfCnpj": "{{$dotenv ASAAS_SANDBOX_CPF_CNPJ}}",
+		"postalCode": "{{$dotenv ASAAS_SANDBOX_POSTAL_CODE}}",
+		"addressNumber": "100",
+		"phone": "{{$dotenv ASAAS_SANDBOX_PHONE}}"
+	}
+}
+
+### Create a recurring subscription (choose payment method and cycle here)
+POST {{API_Payment_Asaas_HostAddress}}/api/subscriptions
+Content-Type: application/json
+
+{
+	"name": "Sandbox Customer",
+	"email": "customer@example.com",
+	"cpfCnpj": "12345678901",
+	"postalCode": "01310-000",
+	"address": "Av. Paulista",
+	"addressNumber": "150",
+	"addressComplement": "Sala 201",
+	"province": "Bela Vista",
+	"value": 89.90,
+	"paymentMethod": "pix",
+	"cycle": "monthly",
+	"nextDueDate": "2026-10-20",
+	"description": "POC recurring subscription"
+}
+
+### List subscriptions and generated payments
+GET {{API_Payment_Asaas_HostAddress}}/api/subscriptions
+Accept: application/json
+
+### Update the value of one subscription
+PUT {{API_Payment_Asaas_HostAddress}}/api/subscriptions/{{subscriptionId}}/value
+Content-Type: application/json
+
+{
+	"value": 99.90
+}
+
+### Cancel a subscription
+DELETE {{API_Payment_Asaas_HostAddress}}/api/subscriptions/{{subscriptionId}}
 
 ### Get one payment by local ID
 GET {{API_Payment_Asaas_HostAddress}}/api/payments/{{paymentId}}

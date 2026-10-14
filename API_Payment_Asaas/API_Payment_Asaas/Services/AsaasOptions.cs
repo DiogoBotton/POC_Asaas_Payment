@@ -7,11 +7,14 @@ public sealed class AsaasOptions
     public string BaseUrl { get; init; } = "https://sandbox.asaas.com/api/v3/";
     public string? ApiKey { get; init; }
     public string? WebhookToken { get; init; }
+    public bool EnableThreeDSecure { get; init; }
+    public string FrontendBaseUrl { get; init; } = "http://localhost:5173";
     public AsaasInvoiceOptions Invoice { get; init; } = new();
 }
 
 public sealed class AsaasInvoiceOptions
 {
+    public bool UseFirstMunicipalService { get; init; }
     public string? ServiceDescription { get; init; }
     public string? Observations { get; init; }
     public string? MunicipalServiceId { get; init; }

@@ -22,11 +22,65 @@ namespace API_Payment_Asaas.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("API_Payment_Asaas.Models.AsaasStoredCard", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LastFourDigits")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("character varying(4)");
+
+                    b.Property<string>("ProtectedToken")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("TokenFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("TokenFingerprint")
+                        .IsUnique();
+
+                    b.ToTable("AsaasStoredCards");
+                });
+
             modelBuilder.Entity("API_Payment_Asaas.Models.Customer", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("AddressComplement")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("AddressNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("AsaasCustomerId")
                         .IsRequired()
@@ -52,6 +106,14 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<string>("Phone")
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
+
+                    b.Property<string>("PostalCode")
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)");
+
+                    b.Property<string>("Province")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.HasKey("Id");
 
@@ -116,6 +178,10 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<string>("AsaasPaymentId")
                         .HasColumnType("text");
 
+                    b.Property<string>("BankSlipIdentificationField")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("BankSlipUrl")
                         .HasColumnType("text");
 
@@ -127,9 +193,6 @@ namespace API_Payment_Asaas.Data.Migrations
 
                     b.Property<DateOnly>("DueDate")
                         .HasColumnType("date");
-
-                    b.Property<string>("InvoiceUrl")
-                        .HasColumnType("text");
 
                     b.Property<string>("PaymentMethod")
                         .IsRequired()
@@ -174,6 +237,12 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<string>("AsaasSubscriptionId")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("CanceledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly?>("CancellationCutoffDate")
+                        .HasColumnType("date");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -183,6 +252,11 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<string>("Cycle")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<DateOnly>("NextDueDate")
                         .HasColumnType("date");
@@ -249,6 +323,17 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.ToTable("WebhookEvents");
                 });
 
+            modelBuilder.Entity("API_Payment_Asaas.Models.AsaasStoredCard", b =>
+                {
+                    b.HasOne("API_Payment_Asaas.Models.Customer", "Customer")
+                        .WithMany("StoredCards")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
             modelBuilder.Entity("API_Payment_Asaas.Models.Invoice", b =>
                 {
                     b.HasOne("API_Payment_Asaas.Models.Payment", "Payment")
@@ -292,6 +377,8 @@ namespace API_Payment_Asaas.Data.Migrations
             modelBuilder.Entity("API_Payment_Asaas.Models.Customer", b =>
                 {
                     b.Navigation("Payments");
+
+                    b.Navigation("StoredCards");
 
                     b.Navigation("Subscriptions");
                 });
