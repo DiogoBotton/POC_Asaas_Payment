@@ -70,6 +70,7 @@ export interface PaymentResponse {
   value: number
   paymentMethod: PaymentMethod
   status: string
+  statusUnknown: string | null
   dueDate: string
   bankSlipUrl: string | null
   bankSlipIdentificationField: string | null
@@ -77,6 +78,7 @@ export interface PaymentResponse {
   pixQrCodeUrl: string | null
   threeDSecureChallengeUrl: string | null
   invoiceStatus: string | null
+  invoiceStatusUnknown: string | null
   invoicePdfUrl: string | null
   invoiceXmlUrl: string | null
   createdAt: string
@@ -110,6 +112,7 @@ export interface SubscriptionCharge {
   value: number
   paymentMethod: RecurringPaymentMethod
   status: string
+  statusUnknown: string | null
   dueDate: string
   bankSlipIdentificationField: string | null
   bankSlipUrl: string | null
@@ -125,6 +128,7 @@ export interface Subscription {
   paymentMethod: RecurringPaymentMethod
   cycle: BillingCycle
   status: string
+  statusUnknown: string | null
   nextDueDate: string
   createdAt: string
   payments: SubscriptionCharge[]

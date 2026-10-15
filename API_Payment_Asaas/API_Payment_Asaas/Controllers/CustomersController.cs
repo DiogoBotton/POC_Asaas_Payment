@@ -1,3 +1,4 @@
+using API_Payment_Asaas.DTOs.Customers;
 using API_Payment_Asaas.Services;
 using Microsoft.AspNetCore.Mvc;
 

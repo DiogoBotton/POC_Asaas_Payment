@@ -1,5 +1,4 @@
-using System.Net;
-using API_Payment_Asaas.Services;
+using API_Payment_Asaas.Integrations.Asaas.Exceptions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 

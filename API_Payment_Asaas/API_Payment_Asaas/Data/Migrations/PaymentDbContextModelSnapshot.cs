@@ -155,6 +155,9 @@ namespace API_Payment_Asaas.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("StatusUnknown")
+                        .HasColumnType("text");
+
                     b.Property<string>("XmlUrl")
                         .HasColumnType("text");
 
@@ -208,6 +211,9 @@ namespace API_Payment_Asaas.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<string>("StatusUnknown")
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("SubscriptionId")
                         .HasColumnType("uuid");
@@ -269,6 +275,9 @@ namespace API_Payment_Asaas.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<string>("StatusUnknown")
+                        .HasColumnType("text");
 
                     b.Property<decimal>("Value")
                         .HasPrecision(18, 2)

@@ -48,7 +48,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
             entity.Property(subscription => subscription.Cycle).HasConversion<string>();
             entity.Property(subscription => subscription.PaymentMethod).HasConversion<string>();
             entity.Property(subscription => subscription.Description).HasMaxLength(500);
-            entity.Property(subscription => subscription.Status).HasMaxLength(40);
+            entity.Property(subscription => subscription.Status).HasConversion<string>().HasMaxLength(40).IsRequired();
             entity.HasOne(subscription => subscription.Customer)
                 .WithMany(customer => customer.Subscriptions)
                 .HasForeignKey(subscription => subscription.CustomerId)
@@ -60,7 +60,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
             entity.HasIndex(payment => payment.AsaasPaymentId).IsUnique();
             entity.Property(payment => payment.Value).HasPrecision(18, 2);
             entity.Property(payment => payment.PaymentMethod).HasConversion<string>();
-            entity.Property(payment => payment.Status).HasMaxLength(40);
+            entity.Property(payment => payment.Status).HasConversion<string>().HasMaxLength(40).IsRequired();
             entity.Property(payment => payment.BankSlipIdentificationField).HasMaxLength(100);
             entity.HasOne(payment => payment.Customer)
                 .WithMany(customer => customer.Payments)
@@ -76,7 +76,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         {
             entity.HasIndex(invoice => invoice.AsaasInvoiceId).IsUnique();
             entity.HasIndex(invoice => invoice.PaymentId).IsUnique();
-            entity.Property(invoice => invoice.Status).HasMaxLength(40);
+            entity.Property(invoice => invoice.Status).HasConversion<string>().HasMaxLength(40).IsRequired();
             entity.HasOne(invoice => invoice.Payment)
                 .WithOne(payment => payment.Invoice)
                 .HasForeignKey<Invoice>(invoice => invoice.PaymentId)
