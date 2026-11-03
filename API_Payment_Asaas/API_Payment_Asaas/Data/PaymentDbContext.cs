@@ -11,6 +11,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
+    public DbSet<FiscalConfiguration> FiscalConfigurations => Set<FiscalConfiguration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +50,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
             entity.Property(subscription => subscription.PaymentMethod).HasConversion<string>();
             entity.Property(subscription => subscription.Description).HasMaxLength(500);
             entity.Property(subscription => subscription.Status).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(subscription => subscription.ErrorMessage).HasMaxLength(2000);
             entity.HasOne(subscription => subscription.Customer)
                 .WithMany(customer => customer.Subscriptions)
                 .HasForeignKey(subscription => subscription.CustomerId)
@@ -61,6 +63,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
             entity.Property(payment => payment.Value).HasPrecision(18, 2);
             entity.Property(payment => payment.PaymentMethod).HasConversion<string>();
             entity.Property(payment => payment.Status).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(payment => payment.ErrorMessage).HasMaxLength(2000);
             entity.Property(payment => payment.BankSlipIdentificationField).HasMaxLength(100);
             entity.HasOne(payment => payment.Customer)
                 .WithMany(customer => customer.Payments)
@@ -76,7 +79,18 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         {
             entity.HasIndex(invoice => invoice.AsaasInvoiceId).IsUnique();
             entity.HasIndex(invoice => invoice.PaymentId).IsUnique();
-            entity.Property(invoice => invoice.Status).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(invoice => invoice.WorkflowStatus).HasConversion<string>().HasMaxLength(40);
+            entity.Property(invoice => invoice.AsaasStatus).HasColumnName("Status").HasMaxLength(100);
+            entity.Property(invoice => invoice.FiscalMunicipalServiceId).HasMaxLength(50);
+            entity.Property(invoice => invoice.FiscalMunicipalServiceName).HasMaxLength(255);
+            entity.Property(invoice => invoice.FiscalServiceDescription).HasMaxLength(500);
+            entity.Property(invoice => invoice.FiscalObservations).HasMaxLength(2000);
+            entity.Property(invoice => invoice.FiscalIss).HasPrecision(9, 4);
+            entity.Property(invoice => invoice.FiscalPis).HasPrecision(9, 4);
+            entity.Property(invoice => invoice.FiscalCofins).HasPrecision(9, 4);
+            entity.Property(invoice => invoice.FiscalCsll).HasPrecision(9, 4);
+            entity.Property(invoice => invoice.FiscalInss).HasPrecision(9, 4);
+            entity.Property(invoice => invoice.FiscalIr).HasPrecision(9, 4);
             entity.HasOne(invoice => invoice.Payment)
                 .WithOne(payment => payment.Invoice)
                 .HasForeignKey<Invoice>(invoice => invoice.PaymentId)
@@ -88,6 +102,20 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
             entity.HasIndex(webhookEvent => webhookEvent.AsaasEventId).IsUnique();
             entity.Property(webhookEvent => webhookEvent.EventType).HasMaxLength(100);
             entity.Property(webhookEvent => webhookEvent.Payload).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<FiscalConfiguration>(entity =>
+        {
+            entity.Property(configuration => configuration.MunicipalServiceId).HasMaxLength(50);
+            entity.Property(configuration => configuration.MunicipalServiceName).HasMaxLength(255);
+            entity.Property(configuration => configuration.ServiceDescription).HasMaxLength(500);
+            entity.Property(configuration => configuration.Observations).HasMaxLength(2000);
+            entity.Property(configuration => configuration.Iss).HasPrecision(9, 4);
+            entity.Property(configuration => configuration.Pis).HasPrecision(9, 4);
+            entity.Property(configuration => configuration.Cofins).HasPrecision(9, 4);
+            entity.Property(configuration => configuration.Csll).HasPrecision(9, 4);
+            entity.Property(configuration => configuration.Inss).HasPrecision(9, 4);
+            entity.Property(configuration => configuration.Ir).HasPrecision(9, 4);
         });
     }
 }

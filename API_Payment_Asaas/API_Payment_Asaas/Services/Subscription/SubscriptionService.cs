@@ -3,6 +3,7 @@ using API_Payment_Asaas.DTOs.Customers;
 using API_Payment_Asaas.DTOs.Payments;
 using API_Payment_Asaas.DTOs.Subscriptions;
 using API_Payment_Asaas.Integrations.Asaas.Contracts;
+using API_Payment_Asaas.Integrations.Asaas.Exceptions;
 using API_Payment_Asaas.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -46,17 +47,15 @@ public sealed class SubscriptionService(
         CancellationToken cancellationToken)
     {
         var paymentMethod = request.PaymentMethod ?? throw new ArgumentException("Escolha um meio de pagamento.");
-        var cycle = request.Cycle ?? throw new ArgumentException("Escolha um ciclo de recorrência.");
-        var nextDueDate = request.NextDueDate ?? throw new ArgumentException("Informe o primeiro vencimento.");
-        if (nextDueDate < DateOnly.FromDateTime(DateTime.UtcNow))
-        {
-            throw new ArgumentException("O primeiro vencimento não pode estar no passado.");
-        }
 
         if (paymentMethod is not (PaymentMethod.CreditCard or PaymentMethod.Pix or PaymentMethod.Boleto))
         {
             throw new ArgumentException("Escolha cartão de crédito, PIX ou boleto para a assinatura.");
         }
+
+        var billingDay = paymentMethod == PaymentMethod.CreditCard ? null : request.BillingDay;
+        var today = SubscriptionDueDateCalculator.GetBusinessDate(DateTimeOffset.UtcNow);
+        var nextDueDate = SubscriptionDueDateCalculator.GetFirstDueDate(today, paymentMethod, billingDay);
 
         if (request.SaveCardForFutureUse && paymentMethod != PaymentMethod.CreditCard)
         {
@@ -94,7 +93,8 @@ public sealed class SubscriptionService(
             CustomerId = customer.Id,
             Value = request.Value,
             PaymentMethod = paymentMethod,
-            Cycle = cycle,
+            Cycle = BillingCycle.Monthly,
+            BillingDay = billingDay,
             Description = description,
             Status = SubscriptionStatus.CREATING,
             NextDueDate = nextDueDate
@@ -149,6 +149,9 @@ public sealed class SubscriptionService(
         {
             subscription.Status = SubscriptionStatus.CREATION_FAILED;
             subscription.StatusUnknown = null;
+            subscription.ErrorMessage = exception is AsaasApiException asaasException
+                ? asaasException.UserMessage
+                : "Não foi possível criar a assinatura na Asaas. Consulte os logs para mais detalhes.";
             await dbContext.SaveChangesAsync(cancellationToken);
             throw;
         }
@@ -255,9 +258,12 @@ public sealed class SubscriptionService(
                 payment.BankSlipUrl,
                 payment.PixCopyPaste,
                 payment.PixQrCodeUrl,
-                payment.StatusUnknown))
+                payment.StatusUnknown,
+                payment.ErrorMessage))
             .ToList(),
-        subscription.StatusUnknown);
+        subscription.StatusUnknown,
+        subscription.BillingDay,
+        subscription.ErrorMessage);
 
     private string GetRemoteIp()
     {

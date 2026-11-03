@@ -12,4 +12,5 @@ public sealed record SubscriptionChargeResponse(
     string? BankSlipUrl,
     string? PixCopyPaste,
     string? PixQrCodeUrl,
-    string? StatusUnknown);
+    string? StatusUnknown,
+    string? ErrorMessage);

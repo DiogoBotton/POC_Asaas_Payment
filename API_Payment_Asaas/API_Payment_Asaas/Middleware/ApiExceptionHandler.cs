@@ -22,6 +22,7 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
 
         if (exception is AsaasApiException asaasException)
         {
+            detail = asaasException.UserMessage;
             logger.LogWarning(
                 exception,
                 "Request failed with status {StatusCode}; Asaas returned {ProviderStatusCode} with error codes {ProviderErrorCodes}.",

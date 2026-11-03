@@ -3,6 +3,7 @@ using System.Text.Json;
 using API_Payment_Asaas.Services;
 using API_Payment_Asaas.DTOs.Customers;
 using API_Payment_Asaas.DTOs.Payments;
+using API_Payment_Asaas.Integrations.Asaas.Contracts;
 using API_Payment_Asaas.Integrations.Asaas.Exceptions;
 using API_Payment_Asaas.Models;
 using Microsoft.Extensions.Options;
@@ -12,100 +13,72 @@ namespace API_Payment_Asaas.Tests;
 public sealed class AsaasClientTests
 {
     [Fact]
-    public async Task ScheduleInvoiceAsync_ResolvesUniqueMunicipalServiceAndIssRate()
+    public async Task GetMunicipalServicesAsync_ReturnsPagedCatalogAndEscapesDescription()
+    {
+        string? requestPath = null;
+        using var httpClient = CreateHttpClient(async (request, cancellationToken) =>
+        {
+            requestPath = request.RequestUri!.PathAndQuery;
+            await Task.CompletedTask;
+            return JsonResponse(HttpStatusCode.OK, "{\"offset\":20,\"limit\":20,\"totalCount\":45,\"hasMore\":true,\"data\":[{\"id\":\"3544\",\"description\":\"01.01.01 - Análise e desenvolvimento de sistemas\",\"issTax\":5}]}");
+        });
+        var client = new AsaasClient(httpClient, Options.Create(new AsaasOptions { ApiKey = "test-key" }));
+
+        var services = await client.GetMunicipalServicesAsync(20, 20, "sistemas & suporte", CancellationToken.None);
+
+        Assert.Equal("/v3/fiscalInfo/services?offset=20&limit=20&description=sistemas%20%26%20suporte", requestPath);
+        Assert.Equal(45, services.TotalCount);
+        Assert.True(services.HasMore);
+        Assert.Equal("3544", Assert.Single(services.Data).Id);
+        Assert.Equal(5m, services.Data[0].IssTax);
+    }
+
+    [Fact]
+    public async Task ScheduleInvoiceAsync_SendsProvidedFiscalSnapshotWithoutCatalogLookup()
     {
         string? requestBody = null;
         var requestPaths = new List<string>();
         using var httpClient = CreateHttpClient(async (request, cancellationToken) =>
         {
-            var requestPath = request.RequestUri!.AbsolutePath;
-            requestPaths.Add(request.RequestUri.PathAndQuery);
-            if (requestPath == "/v3/fiscalInfo/services")
-            {
-                return JsonResponse(HttpStatusCode.OK, "{\"totalCount\":2,\"data\":[{\"id\":\"3544\",\"description\":\"01.01.01 - Análise e desenvolvimento de sistemas\",\"issTax\":5}]}");
-            }
-
+            requestPaths.Add(request.RequestUri!.PathAndQuery);
             requestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
             return JsonResponse(HttpStatusCode.OK, "{\"id\":\"inv_test\",\"status\":\"SCHEDULED\"}");
         });
         var client = new AsaasClient(httpClient, Options.Create(new AsaasOptions
         {
-            ApiKey = "test-key",
-            Invoice = new AsaasInvoiceOptions
-            {
-                UseFirstMunicipalService = true,
-                ServiceDescription = "",
-                Observations = "",
-            }
-        }));
-
-        var invoice = await client.ScheduleInvoiceAsync(Guid.NewGuid(), "pay_test", 125m, null, CancellationToken.None);
-
-        Assert.Equal("inv_test", invoice.Id);
-        Assert.True(client.CanScheduleInvoice);
-        Assert.Equal(["/v3/fiscalInfo/services?offset=0&limit=1", "/v3/invoices"], requestPaths);
-        using var body = JsonDocument.Parse(requestBody!);
-        Assert.Equal("3544", body.RootElement.GetProperty("municipalServiceId").GetString());
-        Assert.False(body.RootElement.TryGetProperty("municipalServiceCode", out _));
-        Assert.Equal("01.01.01 - Análise e desenvolvimento de sistemas", body.RootElement.GetProperty("municipalServiceName").GetString());
-        Assert.Equal("01.01.01 - Análise e desenvolvimento de sistemas", body.RootElement.GetProperty("serviceDescription").GetString());
-        var taxes = body.RootElement.GetProperty("taxes");
-        Assert.False(taxes.GetProperty("retainIss").GetBoolean());
-        Assert.Equal(5m, taxes.GetProperty("iss").GetDecimal());
-        Assert.Equal(0m, taxes.GetProperty("pis").GetDecimal());
-        Assert.Equal(0m, taxes.GetProperty("cofins").GetDecimal());
-        Assert.Equal(0m, taxes.GetProperty("csll").GetDecimal());
-        Assert.Equal(0m, taxes.GetProperty("inss").GetDecimal());
-        Assert.Equal(0m, taxes.GetProperty("ir").GetDecimal());
-        Assert.True(body.RootElement.TryGetProperty("observations", out _));
-    }
-
-    [Fact]
-    public async Task ScheduleInvoiceAsync_SendsOnlyConfiguredFiscalFields()
-    {
-        string? requestBody = null;
-        using var httpClient = CreateHttpClient(async (request, cancellationToken) =>
-        {
-            requestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
-            return JsonResponse(HttpStatusCode.OK, "{\"id\":\"inv_test\",\"status\":\"SCHEDULED\"}");
-        });
-        var client = new AsaasClient(httpClient, Options.Create(new AsaasOptions
-        {
-            ApiKey = "test-key",
-            Invoice = new AsaasInvoiceOptions
-            {
-                ServiceDescription = "Serviços de assinatura",
-                Observations = "Referente ao ciclo mensal",
-                MunicipalServiceCode = "1.01",
-                MunicipalServiceName = "Desenvolvimento de sistemas",
-                RetainIss = false,
-                Iss = 2m,
-                Pis = 0m,
-                Cofins = 0m,
-                Csll = 0m,
-                Inss = 0m,
-                Ir = 0m
-            }
+            ApiKey = "test-key"
         }));
         var localInvoiceId = Guid.NewGuid();
+        var settings = new AsaasInvoiceSettings(
+            "3544",
+            "01.01.01 - Análise e desenvolvimento de sistemas",
+            "Serviços de assinatura",
+            "Referente ao ciclo mensal",
+            false,
+            2m,
+            0m,
+            0m,
+            0m,
+            0m,
+            0m);
 
         var invoice = await client.ScheduleInvoiceAsync(
             localInvoiceId,
             "pay_test",
             125m,
-            "Plano mensal",
+            settings,
             CancellationToken.None);
 
         Assert.Equal("inv_test", invoice.Id);
-        Assert.Equal(InvoiceStatus.SCHEDULED, invoice.Status);
-        Assert.True(client.CanScheduleInvoice);
+        Assert.Equal("SCHEDULED", invoice.Status);
+        Assert.Equal(["/v3/invoices"], requestPaths);
         using var body = JsonDocument.Parse(requestBody!);
         Assert.Equal("pay_test", body.RootElement.GetProperty("payment").GetString());
-        Assert.Equal("Plano mensal", body.RootElement.GetProperty("serviceDescription").GetString());
+        Assert.Equal("Serviços de assinatura", body.RootElement.GetProperty("serviceDescription").GetString());
         Assert.Equal("Referente ao ciclo mensal", body.RootElement.GetProperty("observations").GetString());
         Assert.Equal(125m, body.RootElement.GetProperty("value").GetDecimal());
-        Assert.Equal("1.01", body.RootElement.GetProperty("municipalServiceCode").GetString());
-        Assert.Equal("Desenvolvimento de sistemas", body.RootElement.GetProperty("municipalServiceName").GetString());
+        Assert.Equal("3544", body.RootElement.GetProperty("municipalServiceId").GetString());
+        Assert.Equal("01.01.01 - Análise e desenvolvimento de sistemas", body.RootElement.GetProperty("municipalServiceName").GetString());
         Assert.Equal(localInvoiceId.ToString(), body.RootElement.GetProperty("externalReference").GetString());
         var taxes = body.RootElement.GetProperty("taxes");
         Assert.False(taxes.GetProperty("retainIss").GetBoolean());
@@ -158,6 +131,7 @@ public sealed class AsaasClientTests
 
         Assert.Equal(HttpStatusCode.BadRequest, exception.StatusCode);
         Assert.Equal(["user_agent_not_informed"], exception.ErrorCodes);
+        Assert.Equal(["omitted from logs"], exception.ErrorDescriptions);
     }
 
     [Fact]

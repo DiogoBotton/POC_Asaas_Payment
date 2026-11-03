@@ -14,9 +14,10 @@ public sealed record PaymentResponse(
     string? PixCopyPaste,
     string? PixQrCodeUrl,
     string? ThreeDSecureChallengeUrl,
-    InvoiceStatus? InvoiceStatus,
+    string? InvoiceStatus,
+    InvoiceWorkflowStatus? InvoiceWorkflowStatus,
     string? InvoicePdfUrl,
     string? InvoiceXmlUrl,
     DateTimeOffset CreatedAt,
     string? StatusUnknown,
-    string? InvoiceStatusUnknown);
+    string? ErrorMessage);

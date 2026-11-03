@@ -7,7 +7,7 @@ namespace API_Payment_Asaas.Services;
 
 public interface IAsaasClient
 {
-    bool CanScheduleInvoice { get; }
+    Task<AsaasMunicipalServicesResult> GetMunicipalServicesAsync(int offset, int limit, string? description, CancellationToken cancellationToken);
     Task<AsaasCustomerResult> CreateCustomerAsync(CustomerProfile customer, CancellationToken cancellationToken);
     Task UpdateCustomerAsync(string customerId, CustomerProfile customer, CancellationToken cancellationToken);
     Task<AsaasTokenizedCardResult> TokenizeCardAsync(string customerId, CreditCardDetails card, CreditCardHolderDetails holder, string remoteIp, CancellationToken cancellationToken);
@@ -18,5 +18,5 @@ public interface IAsaasClient
     Task DeletePaymentAsync(string paymentId, CancellationToken cancellationToken);
     Task<AsaasPixResult> GetPixQrCodeAsync(string paymentId, CancellationToken cancellationToken);
     Task<string?> GetBoletoIdentificationFieldAsync(string paymentId, CancellationToken cancellationToken);
-    Task<AsaasInvoiceResult> ScheduleInvoiceAsync(Guid localInvoiceId, string paymentId, decimal value, string? serviceDescription, CancellationToken cancellationToken);
+    Task<AsaasInvoiceResult> ScheduleInvoiceAsync(Guid localInvoiceId, string paymentId, decimal value, AsaasInvoiceSettings settings, CancellationToken cancellationToken);
 }

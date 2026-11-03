@@ -44,7 +44,10 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
 builder.Services.AddDbContext<PaymentDbContext>(options =>
 {
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default"));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default"), options =>
+    {
+        options.MigrationsAssembly(typeof(PaymentDbContext).Assembly.GetName().Name);
+    });
 });
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddDataProtection();
@@ -65,6 +68,7 @@ builder.Services.AddHttpClient<IAsaasClient, AsaasClient>((serviceProvider, clie
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+builder.Services.AddScoped<IFiscalConfigurationService, FiscalConfigurationService>();
 builder.Services.AddScoped<IWebhookInboxService, WebhookInboxService>();
 builder.Services.AddScoped<IWebhookProcessor, WebhookProcessor>();
 builder.Services.AddHostedService<WebhookProcessorService>();

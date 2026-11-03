@@ -9,5 +9,4 @@ public sealed class AsaasOptions
     public string? WebhookToken { get; init; }
     public bool EnableThreeDSecure { get; init; }
     public string FrontendBaseUrl { get; init; } = "http://localhost:5173";
-    public AsaasInvoiceOptions Invoice { get; init; } = new();
 }

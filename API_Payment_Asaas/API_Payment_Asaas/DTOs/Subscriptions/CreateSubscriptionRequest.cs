@@ -39,11 +39,7 @@ public sealed record CreateSubscriptionRequest
     [Required]
     public PaymentMethod? PaymentMethod { get; init; }
 
-    [Required]
-    public BillingCycle? Cycle { get; init; }
-
-    [Required]
-    public DateOnly? NextDueDate { get; init; }
+    public int? BillingDay { get; init; }
 
     public bool SaveCardForFutureUse { get; init; }
 

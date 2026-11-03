@@ -1,12 +1,13 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace API_Payment_Asaas.Data.Migrations
+namespace API_Payment_Asaas.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class initial_migration : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -21,11 +22,40 @@ namespace API_Payment_Asaas.Data.Migrations
                     Email = table.Column<string>(type: "character varying(320)", maxLength: 320, nullable: false),
                     CpfCnpj = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),
                     Phone = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: true),
+                    PostalCode = table.Column<string>(type: "character varying(9)", maxLength: 9, nullable: true),
+                    Address = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
+                    AddressNumber = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),
+                    AddressComplement = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
+                    Province = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Customers", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "FiscalConfigurations",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    MunicipalServiceId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    MunicipalServiceName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
+                    ServiceDescription = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    Observations = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    RetainIss = table.Column<bool>(type: "boolean", nullable: false),
+                    Iss = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: false),
+                    Pis = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: false),
+                    Cofins = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: false),
+                    Csll = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: false),
+                    Inss = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: false),
+                    Ir = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: false),
+                    UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FiscalConfigurations", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -47,6 +77,29 @@ namespace API_Payment_Asaas.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "AsaasStoredCards",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    CustomerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProtectedToken = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: false),
+                    TokenFingerprint = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    Brand = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
+                    LastFourDigits = table.Column<string>(type: "character varying(4)", maxLength: 4, nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AsaasStoredCards", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AsaasStoredCards_Customers_CustomerId",
+                        column: x => x.CustomerId,
+                        principalTable: "Customers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Subscriptions",
                 columns: table => new
                 {
@@ -56,8 +109,14 @@ namespace API_Payment_Asaas.Data.Migrations
                     Value = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     Cycle = table.Column<string>(type: "text", nullable: false),
                     PaymentMethod = table.Column<string>(type: "text", nullable: false),
+                    BillingDay = table.Column<int>(type: "integer", nullable: true),
+                    Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
                     Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    StatusUnknown = table.Column<string>(type: "text", nullable: true),
+                    ErrorMessage = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     NextDueDate = table.Column<DateOnly>(type: "date", nullable: false),
+                    CancellationCutoffDate = table.Column<DateOnly>(type: "date", nullable: true),
+                    CanceledAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -82,9 +141,11 @@ namespace API_Payment_Asaas.Data.Migrations
                     Value = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     PaymentMethod = table.Column<string>(type: "text", nullable: false),
                     Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    StatusUnknown = table.Column<string>(type: "text", nullable: true),
+                    ErrorMessage = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     DueDate = table.Column<DateOnly>(type: "date", nullable: false),
-                    InvoiceUrl = table.Column<string>(type: "text", nullable: true),
                     BankSlipUrl = table.Column<string>(type: "text", nullable: true),
+                    BankSlipIdentificationField = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     PixCopyPaste = table.Column<string>(type: "text", nullable: true),
                     PixQrCodeUrl = table.Column<string>(type: "text", nullable: true),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
@@ -113,10 +174,22 @@ namespace API_Payment_Asaas.Data.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     AsaasInvoiceId = table.Column<string>(type: "text", nullable: true),
                     PaymentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    WorkflowStatus = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    Status = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     PdfUrl = table.Column<string>(type: "text", nullable: true),
                     XmlUrl = table.Column<string>(type: "text", nullable: true),
                     ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    FiscalMunicipalServiceId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    FiscalMunicipalServiceName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
+                    FiscalServiceDescription = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    FiscalObservations = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
+                    FiscalRetainIss = table.Column<bool>(type: "boolean", nullable: true),
+                    FiscalIss = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: true),
+                    FiscalPis = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: true),
+                    FiscalCofins = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: true),
+                    FiscalCsll = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: true),
+                    FiscalInss = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: true),
+                    FiscalIr = table.Column<decimal>(type: "numeric(9,4)", precision: 9, scale: 4, nullable: true),
                     ScheduleAttempts = table.Column<int>(type: "integer", nullable: false),
                     AuthorizedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
@@ -131,6 +204,17 @@ namespace API_Payment_Asaas.Data.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AsaasStoredCards_CustomerId",
+                table: "AsaasStoredCards",
+                column: "CustomerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AsaasStoredCards_TokenFingerprint",
+                table: "AsaasStoredCards",
+                column: "TokenFingerprint",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Customers_AsaasCustomerId",
@@ -187,6 +271,12 @@ namespace API_Payment_Asaas.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "AsaasStoredCards");
+
+            migrationBuilder.DropTable(
+                name: "FiscalConfigurations");
+
             migrationBuilder.DropTable(
                 name: "Invoices");
 

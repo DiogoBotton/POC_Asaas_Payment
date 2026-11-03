@@ -115,7 +115,7 @@ public sealed class PaymentServiceTests
     {
         public int PixQrCodeRequestCount { get; private set; }
         public bool FailPixRequests { get; init; }
-        public bool CanScheduleInvoice => false;
+        public Task<AsaasMunicipalServicesResult> GetMunicipalServicesAsync(int offset, int limit, string? description, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<AsaasCustomerResult> CreateCustomerAsync(CustomerProfile customer, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task UpdateCustomerAsync(string customerId, CustomerProfile customer, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<AsaasTokenizedCardResult> TokenizeCardAsync(string customerId, CreditCardDetails card, CreditCardHolderDetails holder, string remoteIp, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -137,7 +137,7 @@ public sealed class PaymentServiceTests
         }
 
         public Task<string?> GetBoletoIdentificationFieldAsync(string paymentId, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task<AsaasInvoiceResult> ScheduleInvoiceAsync(Guid localInvoiceId, string paymentId, decimal value, string? serviceDescription, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<AsaasInvoiceResult> ScheduleInvoiceAsync(Guid localInvoiceId, string paymentId, decimal value, AsaasInvoiceSettings settings, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class CardTokenProtectorStub : ICardTokenProtector

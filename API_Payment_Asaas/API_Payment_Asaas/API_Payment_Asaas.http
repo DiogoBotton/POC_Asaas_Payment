@@ -20,7 +20,7 @@ Content-Type: application/json
 	"province": "Bela Vista",
 	"value": 89.90,
 	"paymentMethod": "pix",
-	"dueDate": "2026-10-20",
+	"dueDate": "2026-12-20",
 	"description": "POC PIX payment"
 }
 
@@ -39,7 +39,7 @@ Content-Type: application/json
 	"province": "Bela Vista",
 	"value": 89.90,
 	"paymentMethod": "boleto",
-	"dueDate": "2026-10-20",
+	"dueDate": "2026-12-20",
 	"description": "POC boleto payment"
 }
 
@@ -58,7 +58,7 @@ Content-Type: application/json
 	"province": "Bela Vista",
 	"value": 89.90,
 	"paymentMethod": "creditCard",
-	"dueDate": "2026-10-20",
+	"dueDate": "2026-12-20",
 	"description": "POC card payment",
 	"saveCardForFutureUse": false,
 	"creditCard": {
@@ -78,7 +78,7 @@ Content-Type: application/json
 	}
 }
 
-### Create a recurring subscription (choose payment method and cycle here)
+### Create a recurring subscription (choose payment method and billing day here)
 POST {{API_Payment_Asaas_HostAddress}}/api/subscriptions
 Content-Type: application/json
 
@@ -93,8 +93,7 @@ Content-Type: application/json
 	"province": "Bela Vista",
 	"value": 89.90,
 	"paymentMethod": "pix",
-	"cycle": "monthly",
-	"nextDueDate": "2026-10-20",
+	"billingDay": 15,
 	"description": "POC recurring subscription"
 }
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using API_Payment_Asaas.Data;
 using API_Payment_Asaas.Integrations.Asaas;
+using API_Payment_Asaas.Integrations.Asaas.Contracts;
 using API_Payment_Asaas.Integrations.Asaas.Exceptions;
 using API_Payment_Asaas.Models;
 using Microsoft.EntityFrameworkCore;
@@ -133,6 +134,31 @@ public sealed class WebhookProcessor(
             payment.StatusUnknown = parsedStatus.StatusUnknown;
         }
 
+        switch (eventType)
+        {
+            case "PAYMENT_CREATED":
+                payment.ErrorMessage = null;
+                break;
+            case "PAYMENT_AWAITING_RISK_ANALYSIS":
+                payment.Status = PaymentStatus.AWAITING_RISK_ANALYSIS;
+                payment.StatusUnknown = null;
+                payment.ErrorMessage = null;
+                break;
+            case "PAYMENT_REPROVED_BY_RISK_ANALYSIS":
+                payment.ErrorMessage = GetPaymentErrorDescription(paymentData) ??
+                    "Pagamento reprovado pela análise de risco da Asaas.";
+                break;
+            case "PAYMENT_CREDIT_CARD_CAPTURE_REFUSED":
+                payment.ErrorMessage = GetPaymentErrorDescription(paymentData) ??
+                    "A captura do cartão foi recusada. Verifique com o emissor do cartão.";
+                break;
+            case "PAYMENT_APPROVED_BY_RISK_ANALYSIS":
+            case "PAYMENT_CONFIRMED":
+            case "PAYMENT_RECEIVED":
+                payment.ErrorMessage = null;
+                break;
+        }
+
         if (GetString(paymentData, "billingType") is { } billingType)
         {
             payment.PaymentMethod = billingType switch
@@ -204,7 +230,7 @@ public sealed class WebhookProcessor(
             var invoice = await dbContext.Invoices.FirstOrDefaultAsync(item => item.PaymentId == payment.Id, cancellationToken);
             if (invoice is null)
             {
-                invoice = new Invoice { PaymentId = payment.Id, Status = InvoiceStatus.CONFIGURATION_REQUIRED };
+                invoice = new Invoice { PaymentId = payment.Id, WorkflowStatus = InvoiceWorkflowStatus.CONFIGURATION_REQUIRED };
                 dbContext.Invoices.Add(invoice);
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
@@ -238,17 +264,23 @@ public sealed class WebhookProcessor(
         {
             subscription.Status = SubscriptionStatus.DELETED;
             subscription.StatusUnknown = null;
+            subscription.ErrorMessage = null;
         }
         else if (eventType == "SUBSCRIPTION_INACTIVATED")
         {
             subscription.Status = SubscriptionStatus.INACTIVE;
             subscription.StatusUnknown = null;
+            subscription.ErrorMessage = null;
         }
         else if (subscription.CanceledAt is null && GetString(subscriptionData, "status") is { } status)
         {
             var parsedStatus = AsaasStatusParser.ParseSubscriptionStatus(status);
             subscription.Status = parsedStatus.Status;
             subscription.StatusUnknown = parsedStatus.StatusUnknown;
+            if (parsedStatus.Status != SubscriptionStatus.UNKNOWN)
+            {
+                subscription.ErrorMessage = null;
+            }
         }
 
         subscription.NextDueDate = TryGetDate(subscriptionData, "nextDueDate") ?? subscription.NextDueDate;
@@ -263,6 +295,16 @@ public sealed class WebhookProcessor(
         element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString()
             : null;
+
+    private static string? GetPaymentErrorDescription(JsonElement paymentData)
+    {
+        var description = GetString(paymentData, "statusDescription") ??
+                          GetString(paymentData, "refusalReason") ??
+                          GetString(paymentData, "errorMessage");
+        return string.IsNullOrWhiteSpace(description)
+            ? null
+            : description.Length <= 2000 ? description : description[..2000];
+    }
 
     private static decimal? TryGetDecimal(JsonElement element, string propertyName) =>
         element.TryGetProperty(propertyName, out var property) && property.TryGetDecimal(out var value)
@@ -307,9 +349,17 @@ public sealed class WebhookProcessor(
             return;
         }
 
-        invoice.Status = eventType == "INVOICE_AUTHORIZED" ? InvoiceStatus.AUTHORIZED : InvoiceStatus.ERROR;
-        invoice.StatusUnknown = null;
-        invoice.AuthorizedAt = eventType == "INVOICE_AUTHORIZED" ? DateTimeOffset.UtcNow : null;
+        var parsedEventType = ParseInvoiceEventType(eventType);
+        if (GetString(invoiceData, "status") is { } asaasStatus)
+        {
+            invoice.AsaasStatus = asaasStatus;
+        }
+
+        if (parsedEventType == InvoiceWebhookEventType.Authorized)
+        {
+            invoice.AuthorizedAt ??= DateTimeOffset.UtcNow;
+        }
+
         if (invoiceData.TryGetProperty("pdfUrl", out var pdfUrl))
         {
             invoice.PdfUrl = pdfUrl.GetString();
@@ -320,16 +370,43 @@ public sealed class WebhookProcessor(
             invoice.XmlUrl = xmlUrl.GetString();
         }
 
-        if (invoiceData.TryGetProperty("statusDescription", out var statusDescription))
+        if (parsedEventType == InvoiceWebhookEventType.Error &&
+            invoiceData.TryGetProperty("statusDescription", out var statusDescription))
         {
             invoice.ErrorMessage = statusDescription.GetString();
         }
     }
 
+    private static InvoiceWebhookEventType ParseInvoiceEventType(string eventType) => eventType switch
+    {
+        "INVOICE_CREATED" => InvoiceWebhookEventType.Created,
+        "INVOICE_UPDATED" => InvoiceWebhookEventType.Updated,
+        "INVOICE_SYNCHRONIZED" => InvoiceWebhookEventType.Synchronized,
+        "INVOICE_AUTHORIZED" => InvoiceWebhookEventType.Authorized,
+        "INVOICE_PROCESSING_CANCELLATION" => InvoiceWebhookEventType.ProcessingCancellation,
+        "INVOICE_CANCELED" => InvoiceWebhookEventType.Canceled,
+        "INVOICE_CANCELLATION_DENIED" => InvoiceWebhookEventType.CancellationDenied,
+        "INVOICE_ERROR" => InvoiceWebhookEventType.Error,
+        _ => InvoiceWebhookEventType.Unknown
+    };
+
+    private enum InvoiceWebhookEventType
+    {
+        Unknown,
+        Created,
+        Updated,
+        Synchronized,
+        Authorized,
+        ProcessingCancellation,
+        Canceled,
+        CancellationDenied,
+        Error
+    }
+
     private async Task SchedulePendingInvoicesAsync(CancellationToken cancellationToken)
     {
         var invoices = await dbContext.Invoices
-            .Where(item => (item.Status == InvoiceStatus.CONFIGURATION_REQUIRED || item.Status == InvoiceStatus.SCHEDULE_FAILED) &&
+            .Where(item => (item.WorkflowStatus == InvoiceWorkflowStatus.CONFIGURATION_REQUIRED || item.WorkflowStatus == InvoiceWorkflowStatus.SCHEDULE_FAILED) &&
                            item.ScheduleAttempts < MaxAttempts)
             .OrderBy(item => item.CreatedAt)
             .Take(20)
@@ -348,49 +425,75 @@ public sealed class WebhookProcessor(
     private async Task TryScheduleInvoiceAsync(Invoice invoice, Payment payment, CancellationToken cancellationToken)
     {
         if (invoice.AsaasInvoiceId is not null ||
-            invoice.Status is not (InvoiceStatus.CONFIGURATION_REQUIRED or InvoiceStatus.SCHEDULE_FAILED))
+            invoice.WorkflowStatus is not (InvoiceWorkflowStatus.CONFIGURATION_REQUIRED or InvoiceWorkflowStatus.SCHEDULE_FAILED))
         {
             return;
         }
 
-        if (!asaasClient.CanScheduleInvoice || string.IsNullOrWhiteSpace(payment.AsaasPaymentId))
+        if (string.IsNullOrWhiteSpace(payment.AsaasPaymentId))
         {
-            invoice.Status = InvoiceStatus.CONFIGURATION_REQUIRED;
-            invoice.StatusUnknown = null;
-            invoice.ErrorMessage = "Configure os dados fiscais obrigatórios da NFS-e e confirme o vínculo da cobrança no Asaas.";
+            invoice.WorkflowStatus = InvoiceWorkflowStatus.CONFIGURATION_REQUIRED;
+            invoice.ErrorMessage = "Confirme o vínculo da cobrança no Asaas antes de agendar a NFS-e.";
             return;
         }
 
-        invoice.Status = InvoiceStatus.SCHEDULING;
-        invoice.StatusUnknown = null;
+        if (string.IsNullOrWhiteSpace(invoice.FiscalMunicipalServiceId))
+        {
+            var configuration = await dbContext.FiscalConfigurations
+                .FirstOrDefaultAsync(item => item.Id == FiscalConfiguration.SingletonId, cancellationToken);
+            if (configuration is null || string.IsNullOrWhiteSpace(configuration.MunicipalServiceId))
+            {
+                invoice.WorkflowStatus = InvoiceWorkflowStatus.CONFIGURATION_REQUIRED;
+                invoice.ErrorMessage = "Selecione um serviço municipal e salve a configuração fiscal antes de emitir NFS-e.";
+                return;
+            }
+
+            invoice.FiscalMunicipalServiceId = configuration.MunicipalServiceId;
+            invoice.FiscalMunicipalServiceName = configuration.MunicipalServiceName;
+            invoice.FiscalServiceDescription = configuration.ServiceDescription;
+            invoice.FiscalObservations = configuration.Observations;
+            invoice.FiscalRetainIss = configuration.RetainIss;
+            invoice.FiscalIss = configuration.Iss;
+            invoice.FiscalPis = configuration.Pis;
+            invoice.FiscalCofins = configuration.Cofins;
+            invoice.FiscalCsll = configuration.Csll;
+            invoice.FiscalInss = configuration.Inss;
+            invoice.FiscalIr = configuration.Ir;
+        }
+
+        invoice.WorkflowStatus = InvoiceWorkflowStatus.SCHEDULING;
         invoice.ScheduleAttempts++;
         await dbContext.SaveChangesAsync(cancellationToken);
 
         try
         {
-            var serviceDescription = payment.SubscriptionId is { } subscriptionId
-                ? await dbContext.Subscriptions
-                    .Where(item => item.Id == subscriptionId)
-                    .Select(item => item.Description)
-                    .FirstOrDefaultAsync(cancellationToken)
-                : null;
             var result = await asaasClient.ScheduleInvoiceAsync(
                 invoice.Id,
                 payment.AsaasPaymentId,
                 payment.Value,
-                serviceDescription,
+                new AsaasInvoiceSettings(
+                    invoice.FiscalMunicipalServiceId!,
+                    invoice.FiscalMunicipalServiceName!,
+                    invoice.FiscalServiceDescription!,
+                    invoice.FiscalObservations ?? string.Empty,
+                    invoice.FiscalRetainIss ?? false,
+                    invoice.FiscalIss ?? 0m,
+                    invoice.FiscalPis ?? 0m,
+                    invoice.FiscalCofins ?? 0m,
+                    invoice.FiscalCsll ?? 0m,
+                    invoice.FiscalInss ?? 0m,
+                    invoice.FiscalIr ?? 0m),
                 cancellationToken);
             invoice.AsaasInvoiceId = result.Id;
-            invoice.Status = result.Status;
-            invoice.StatusUnknown = result.StatusUnknown;
+            invoice.AsaasStatus = result.Status;
+            invoice.WorkflowStatus = null;
             invoice.PdfUrl = result.PdfUrl;
             invoice.XmlUrl = result.XmlUrl;
             invoice.ErrorMessage = null;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            invoice.Status = InvoiceStatus.SCHEDULE_FAILED;
-            invoice.StatusUnknown = null;
+            invoice.WorkflowStatus = InvoiceWorkflowStatus.SCHEDULE_FAILED;
             if (exception is AsaasApiException asaasException)
             {
                 var errorCodes = string.Join(",", asaasException.ErrorCodes);

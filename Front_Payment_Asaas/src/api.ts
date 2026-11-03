@@ -78,14 +78,16 @@ export interface PaymentResponse {
   pixQrCodeUrl: string | null
   threeDSecureChallengeUrl: string | null
   invoiceStatus: string | null
-  invoiceStatusUnknown: string | null
+  invoiceWorkflowStatus: string | null
   invoicePdfUrl: string | null
   invoiceXmlUrl: string | null
   createdAt: string
+  errorMessage: string | null
 }
 
 export type RecurringPaymentMethod = Exclude<PaymentMethod, 'undefined'>
 export type BillingCycle = 'weekly' | 'biweekly' | 'monthly' | 'bimonthly' | 'quarterly' | 'semiannually' | 'yearly'
+export type BillingDay = 6 | 15 | 25
 
 export interface CreateSubscriptionInput {
   name: string
@@ -99,8 +101,7 @@ export interface CreateSubscriptionInput {
   province: string
   value: number
   paymentMethod: RecurringPaymentMethod
-  cycle: BillingCycle
-  nextDueDate: string
+  billingDay: BillingDay | null
   description: string
   saveCardForFutureUse: boolean
   creditCard?: CreditCardDetails
@@ -113,6 +114,7 @@ export interface SubscriptionCharge {
   paymentMethod: RecurringPaymentMethod
   status: string
   statusUnknown: string | null
+  errorMessage: string | null
   dueDate: string
   bankSlipIdentificationField: string | null
   bankSlipUrl: string | null
@@ -127,11 +129,46 @@ export interface Subscription {
   value: number
   paymentMethod: RecurringPaymentMethod
   cycle: BillingCycle
+  billingDay: BillingDay | null
   status: string
   statusUnknown: string | null
   nextDueDate: string
   createdAt: string
+  errorMessage: string | null
   payments: SubscriptionCharge[]
+}
+
+export interface FiscalConfiguration {
+  municipalServiceId: string | null
+  municipalServiceName: string | null
+  serviceDescription: string
+  observations: string
+  retainIss: boolean
+  iss: number
+  pis: number
+  cofins: number
+  csll: number
+  inss: number
+  ir: number
+  updatedAt: string
+}
+
+export interface MunicipalService {
+  id: string
+  description: string
+  issTax: number | null
+}
+
+export interface MunicipalServicesPage {
+  offset: number
+  limit: number
+  totalCount: number
+  hasMore: boolean
+  data: MunicipalService[]
+}
+
+export type UpdateFiscalConfigurationInput = Omit<FiscalConfiguration, 'municipalServiceName' | 'updatedAt'> & {
+  municipalServiceId: string
 }
 
 interface ProblemResponse { title?: string; detail?: string; errors?: Record<string, string[]> }
@@ -177,4 +214,14 @@ export function updateSubscriptionValue(id: string, value: number) {
 }
 export function cancelSubscription(id: string) {
   return request<void>(`/api/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function getFiscalConfiguration() { return request<FiscalConfiguration>('/api/fiscal/configuration') }
+export function getMunicipalServices(offset: number, limit: number, description: string) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  if (description) params.set('description', description)
+  return request<MunicipalServicesPage>(`/api/fiscal/municipal-services?${params}`)
+}
+export function saveFiscalConfiguration(input: UpdateFiscalConfigurationInput) {
+  return request<FiscalConfiguration>('/api/fiscal/configuration', { method: 'PUT', body: JSON.stringify(input) })
 }

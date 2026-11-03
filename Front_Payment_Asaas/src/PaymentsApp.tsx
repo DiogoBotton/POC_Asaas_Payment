@@ -1,15 +1,16 @@
 import { useDeferredValue, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, NavLink, Outlet, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRight, ArrowUpRight, Banknote, Ban, CalendarDays, Check, CircleAlert, Clock3, Copy, CreditCard, ExternalLink, FileText, LayoutDashboard, Plus, QrCode, ReceiptText, RefreshCw, Repeat2, Save, Search, ShieldCheck, UsersRound, WalletCards } from 'lucide-react'
-import { cancelSubscription, createPayment, createSubscription, findCustomerByCpfCnpj, getCustomers, getPayment, getPayments, getSubscriptions, updateSubscriptionValue, type BillingCycle, type CreatePaymentInput, type CreateSubscriptionInput, type CreditCardDetails, type CreditCardHolderDetails, type Customer, type DirectPaymentMethod, type PaymentResponse, type Subscription } from './api'
+import { ArrowLeft, ArrowRight, ArrowUpRight, Banknote, Ban, CalendarDays, Check, CircleAlert, Clock3, Copy, CreditCard, ExternalLink, FileText, LayoutDashboard, Plus, QrCode, ReceiptText, RefreshCw, Repeat2, Save, Search, Settings, ShieldCheck, UsersRound, WalletCards } from 'lucide-react'
+import { cancelSubscription, createPayment, createSubscription, findCustomerByCpfCnpj, getCustomers, getFiscalConfiguration, getMunicipalServices, getPayment, getPayments, getSubscriptions, saveFiscalConfiguration, updateSubscriptionValue, type BillingDay, type CreatePaymentInput, type CreateSubscriptionInput, type CreditCardDetails, type CreditCardHolderDetails, type Customer, type DirectPaymentMethod, type FiscalConfiguration, type PaymentResponse, type Subscription, type UpdateFiscalConfigurationInput } from './api'
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-const finalStatuses = new Set(['CONFIRMED', 'RECEIVED', 'RECEIVED_IN_CASH', 'OVERDUE', 'REFUNDED', 'REFUND_REQUESTED', 'CHARGEBACK', 'DELETED'])
+const finalStatuses = new Set(['CONFIRMED', 'RECEIVED', 'RECEIVED_IN_CASH', 'OVERDUE', 'REFUNDED', 'REFUND_REQUESTED', 'CHARGEBACK', 'DELETED', 'CREATION_FAILED'])
 
 type CardFormValues = CreditCardDetails
 
 const emptyCardForm: CardFormValues = { holderName: '', number: '', expiryMonth: '', expiryYear: '', ccv: '' }
+const emptyFiscalForm = { municipalServiceId: '', municipalServiceName: '', serviceDescription: '', observations: '', retainIss: false, iss: '0', pis: '0', cofins: '0', csll: '0', inss: '0', ir: '0' }
 
 function cardPayload(card: CardFormValues, customer: { name: string; email: string; cpfCnpj: string; phone: string; postalCode: string; addressNumber: string; address: string; province: string; addressComplement: string }) {
     const creditCard: CreditCardDetails = { holderName: card.holderName.trim(), number: card.number, expiryMonth: card.expiryMonth, expiryYear: card.expiryYear, ccv: card.ccv }
@@ -62,6 +63,7 @@ export default function PaymentsApp() {
                 <NavLink to="/payments/new" className="nav-link"><Plus size={18} /><span>Nova cobrança</span></NavLink>
                 <NavLink to="/customers" className="nav-link"><UsersRound size={18} /><span>Clientes</span></NavLink>
                 <NavLink to="/subscriptions" end className="nav-link"><Repeat2 size={18} /><span>Assinaturas</span></NavLink>
+                <NavLink to="/fiscal" className="nav-link"><Settings size={18} /><span>Configuração fiscal</span></NavLink>
             </nav>
             <div className="sidebar-bottom"><div className="environment"><span className="environment-dot" /> Sandbox Asaas</div><div className="sidebar-note"><ShieldCheck size={15} /> Integração protegida no backend</div></div>
         </aside>
@@ -105,12 +107,113 @@ export function CustomersPage() {
     </section>
 }
 
+export function FiscalConfigurationPage() {
+    const queryClient = useQueryClient()
+    const [formDraft, setFormDraft] = useState<typeof emptyFiscalForm | null>(null)
+    const [serviceSearch, setServiceSearch] = useState('')
+    const [offset, setOffset] = useState(0)
+    const deferredServiceSearch = useDeferredValue(serviceSearch.trim())
+    const configurationQuery = useQuery({ queryKey: ['fiscal-configuration'], queryFn: getFiscalConfiguration })
+    const servicesQuery = useQuery({
+        queryKey: ['municipal-services', deferredServiceSearch, offset],
+        queryFn: () => getMunicipalServices(offset, 20, deferredServiceSearch),
+    })
+    const saveMutation = useMutation({
+        mutationFn: (input: UpdateFiscalConfigurationInput) => saveFiscalConfiguration(input),
+        onSuccess: async (configuration) => {
+            setFormDraft(fiscalForm(configuration))
+            await queryClient.invalidateQueries({ queryKey: ['fiscal-configuration'] })
+        },
+    })
+
+    const form = formDraft ?? (configurationQuery.data ? fiscalForm(configurationQuery.data) : emptyFiscalForm)
+
+    const services = servicesQuery.data?.data ?? []
+    const selectedServiceIsOnPage = services.some((service) => service.id === form.municipalServiceId)
+
+    function chooseService(serviceId: string) {
+        const service = services.find((candidate) => candidate.id === serviceId)
+        setFormDraft((current) => {
+            const currentForm = current ?? form
+            return {
+                ...currentForm,
+                municipalServiceId: service?.id ?? '',
+                municipalServiceName: service?.description ?? '',
+                serviceDescription: currentForm.serviceDescription || service?.description || '',
+                iss: service?.issTax == null ? currentForm.iss : String(service.issTax),
+            }
+        })
+    }
+
+    function updateFiscalField(field: keyof typeof emptyFiscalForm, value: string | boolean) {
+        setFormDraft((current) => ({ ...(current ?? form), [field]: value }))
+    }
+
+    function save(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault()
+        saveMutation.mutate({
+            municipalServiceId: form.municipalServiceId,
+            serviceDescription: form.serviceDescription.trim(),
+            observations: form.observations,
+            retainIss: form.retainIss,
+            iss: Number(form.iss),
+            pis: Number(form.pis),
+            cofins: Number(form.cofins),
+            csll: Number(form.csll),
+            inss: Number(form.inss),
+            ir: Number(form.ir),
+        })
+    }
+
+    return <section className="page-enter form-page">
+        <div className="page-heading"><div className="eyebrow">CONFIGURAÇÃO</div><h1>Emissão fiscal</h1><p className="heading-copy">Serviço municipal e parâmetros enviados nas próximas NFS-e.</p></div>
+        {configurationQuery.isPending ? <div className="state-message"><span className="loading-mark" /> Carregando configuração fiscal</div> : configurationQuery.isError ? <div className="state-message error-message"><CircleAlert size={18} /> {configurationQuery.error.message}</div> : <form className="payment-form" onSubmit={save}>
+            <div className="form-section"><div className="form-section-heading"><span className="section-number">01</span><div><h2>Serviço municipal</h2><p>Escolha um serviço retornado pela conta Asaas.</p></div></div><div className="form-grid">
+                <label className="field field-wide"><span>Buscar serviço</span><div className="search-field"><Search size={16} /><input value={serviceSearch} onChange={(event) => { setServiceSearch(event.target.value); setOffset(0) }} placeholder="Nome ou descrição do serviço" /></div></label>
+                <label className="field field-wide"><span>Serviço selecionado</span><select required value={form.municipalServiceId} onChange={(event) => chooseService(event.target.value)} disabled={servicesQuery.isPending || servicesQuery.isError || services.length === 0}>
+                    <option value="">Selecione um serviço</option>
+                    {form.municipalServiceId && !selectedServiceIsOnPage && <option value={form.municipalServiceId}>{form.municipalServiceName}</option>}
+                    {services.map((service) => <option key={service.id} value={service.id}>{service.description}{service.issTax == null ? '' : ` · ISS ${service.issTax}%`}</option>)}
+                </select></label>
+                {servicesQuery.isPending ? <p className="customer-lookup-note" role="status">Consultando catálogo Asaas...</p> : servicesQuery.isError ? <p className="customer-lookup-note lookup-error" role="alert">{servicesQuery.error.message}</p> : services.length === 0 ? <p className="customer-lookup-note" role="status">Nenhum serviço foi retornado pela conta Asaas.</p> : <div className="table-actions field-wide"><span className="subtle-text">{servicesQuery.data?.totalCount ?? 0} serviços</span><button className="button button-secondary" type="button" disabled={offset === 0 || servicesQuery.isFetching} onClick={() => setOffset((current) => Math.max(0, current - 20))}>Anterior</button><button className="button button-secondary" type="button" disabled={!servicesQuery.data?.hasMore || servicesQuery.isFetching} onClick={() => setOffset((current) => current + 20)}>Próxima</button></div>}
+            </div></div>
+            <div className="form-section"><div className="form-section-heading"><span className="section-number">02</span><div><h2>Dados da nota</h2><p>Aplicados às próximas emissões.</p></div></div><div className="form-grid">
+                <label className="field field-wide"><span>Descrição do serviço</span><input required maxLength={500} value={form.serviceDescription} onChange={(event) => updateFiscalField('serviceDescription', event.target.value)} /></label>
+                <label className="field field-wide"><span>Observações <small>Opcional</small></span><textarea maxLength={2000} rows={3} value={form.observations} onChange={(event) => updateFiscalField('observations', event.target.value)} /></label>
+                <label className="setting-option field-wide"><input type="checkbox" checked={form.retainIss} onChange={(event) => updateFiscalField('retainIss', event.target.checked)} /><span>Reter ISS</span></label>
+            </div></div>
+            <div className="form-section"><div className="form-section-heading"><span className="section-number">03</span><div><h2>Alíquotas</h2><p>Percentuais enviados no agendamento da NFS-e.</p></div></div><div className="form-grid">
+                {(['iss', 'pis', 'cofins', 'csll', 'inss', 'ir'] as const).map((tax) => <label className="field" key={tax}><span>{tax.toUpperCase()} (%)</span><input required type="number" min="0" max="100" step="0.0001" value={form[tax]} onChange={(event) => updateFiscalField(tax, event.target.value)} /></label>)}
+            </div></div>
+            {saveMutation.isError && <div className="form-error"><CircleAlert size={17} /> {saveMutation.error.message}</div>}
+            {configurationQuery.data?.municipalServiceId && <p className="subtle-text">Última atualização: {formatDateTime(configurationQuery.data.updatedAt)}</p>}
+            <div className="form-footer"><span><ShieldCheck size={16} /> Configuração salva no banco local</span><button className="button button-primary" type="submit" disabled={saveMutation.isPending || !form.municipalServiceId || !form.serviceDescription.trim()}>{saveMutation.isPending ? <><span className="button-spinner" /> Salvando...</> : <>Salvar configuração <Save size={16} /></>}</button></div>
+        </form>}
+    </section>
+}
+
+function fiscalForm(configuration: FiscalConfiguration) {
+    return {
+        municipalServiceId: configuration.municipalServiceId ?? '',
+        municipalServiceName: configuration.municipalServiceName ?? '',
+        serviceDescription: configuration.serviceDescription,
+        observations: configuration.observations,
+        retainIss: configuration.retainIss,
+        iss: String(configuration.iss),
+        pis: String(configuration.pis),
+        cofins: String(configuration.cofins),
+        csll: String(configuration.csll),
+        inss: String(configuration.inss),
+        ir: String(configuration.ir),
+    }
+}
+
 export function NewPaymentPage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const [searchParams] = useSearchParams()
     const [mode, setMode] = useState<'oneOff' | 'subscription'>(() => searchParams.get('mode') === 'subscription' ? 'subscription' : 'oneOff')
-    const [form, setForm] = useState({ name: '', email: '', cpfCnpj: '', phone: '', postalCode: '', address: '', addressNumber: '', addressComplement: '', province: '', value: '', dueDate: defaultDueDate(), description: '', paymentMethod: 'pix' as DirectPaymentMethod, cycle: 'monthly' as BillingCycle, saveCardForFutureUse: false })
+    const [form, setForm] = useState({ name: '', email: '', cpfCnpj: '', phone: '', postalCode: '', address: '', addressNumber: '', addressComplement: '', province: '', value: '', dueDate: defaultDueDate(), description: '', paymentMethod: 'pix' as DirectPaymentMethod, billingDay: 15 as BillingDay, saveCardForFutureUse: false })
     const [card, setCard] = useState<CardFormValues>(emptyCardForm)
     const [cardValidationError, setCardValidationError] = useState<string | null>(null)
     const [lookupDocument, setLookupDocument] = useState('')
@@ -162,6 +265,12 @@ export function NewPaymentPage() {
         },
     })
     function update(field: keyof typeof form, value: string) { setForm((current) => ({ ...current, [field]: value })) }
+    function updateBillingDay(value: string) {
+        const billingDay = Number(value)
+        if (billingDay === 6 || billingDay === 15 || billingDay === 25) {
+            setForm((current) => ({ ...current, billingDay }))
+        }
+    }
     function updateCard(field: keyof CardFormValues, value: string) {
         setCard((current) => ({ ...current, [field]: value }))
         setCardValidationError(null)
@@ -200,8 +309,7 @@ export function NewPaymentPage() {
                     ...customerDetails,
                     value: Number(form.value),
                     paymentMethod: form.paymentMethod,
-                    cycle: form.cycle,
-                    nextDueDate: form.dueDate,
+                    billingDay: form.paymentMethod === 'creditCard' ? null : form.billingDay,
                     description: form.description.trim() || 'Assinatura da plataforma',
                     saveCardForFutureUse: form.saveCardForFutureUse,
                     ...(cardDetails ?? {}),
@@ -250,31 +358,21 @@ export function NewPaymentPage() {
             </div></div>
             <div className="form-section"><div className="form-section-heading"><span className="section-number">03</span><div><h2>{mode === 'subscription' ? 'Condições da assinatura' : 'Pagamento'}</h2><p>{mode === 'subscription' ? 'Defina o valor e a frequência das próximas cobranças.' : 'Pagamento integral, sem parcelamento.'}</p></div></div><div className="form-grid">
                 <label className="field"><span>{mode === 'subscription' ? 'Valor por ciclo' : 'Valor total'}</span><div className="amount-input"><span>R$</span><input required type="number" min="0.01" max="9999999.99" step="0.01" inputMode="decimal" value={form.value} onChange={(event) => update('value', event.target.value)} placeholder="0,00" /></div></label>
-                <label className="field"><span>{mode === 'subscription' ? 'Primeiro vencimento' : 'Vencimento'}</span><div className="input-with-icon"><CalendarDays size={16} /><input required type="date" min={mode === 'subscription' ? defaultDueDate() : undefined} value={form.dueDate} onChange={(event) => update('dueDate', event.target.value)} /></div></label>
+                {mode === 'oneOff' && <label className="field"><span>Vencimento</span><div className="input-with-icon"><CalendarDays size={16} /><input required type="date" value={form.dueDate} onChange={(event) => update('dueDate', event.target.value)} /></div></label>}
                 <label className="field"><span>Meio de pagamento</span><select value={form.paymentMethod} onChange={(event) => update('paymentMethod', event.target.value)}><option value="pix">PIX</option><option value="boleto">Boleto</option><option value="creditCard">Cartão de crédito</option></select></label>
-                {mode === 'subscription' && <label className="field"><span>Ciclo de recorrência</span><select required value={form.cycle} onChange={(event) => update('cycle', event.target.value)}>{billingCycles.map((cycle) => <option key={cycle.value} value={cycle.value}>{cycle.label}</option>)}</select></label>}
+                {mode === 'subscription' && form.paymentMethod !== 'creditCard' && <label className="field"><span>Dia do vencimento mensal</span><select required value={form.billingDay} onChange={(event) => updateBillingDay(event.target.value)}><option value={6}>Dia 06</option><option value={15}>Dia 15</option><option value={25}>Dia 25</option></select></label>}
                 <label className="field field-wide"><span>Descrição <small>Opcional</small></span><input maxLength={mode === 'subscription' ? 150 : 200} value={form.description} onChange={(event) => update('description', event.target.value)} placeholder="Ex.: Consultoria mensal" /></label>
             </div>{form.paymentMethod === 'creditCard' && <>
                 <CreditCardFields card={card} update={updateCard} />
                 {cardValidationError && <div className="form-error" role="alert"><CircleAlert size={17} /> {cardValidationError}</div>}
                 <label className="setting-option save-card-option"><input type="checkbox" checked={form.saveCardForFutureUse} onChange={(event) => setForm((current) => ({ ...current, saveCardForFutureUse: event.target.checked }))} /><span>Salvar o token Asaas para futuras cobranças. PAN e CVV não serão armazenados.</span></label>
             </>}
-                <div className="payment-security-note"><WalletCards size={18} /><span>{form.paymentMethod === 'creditCard' ? 'Os dados do cartão são enviados ao Asaas pela API e descartados após o envio.' : mode === 'subscription' ? 'As instruções de cada ciclo serão exibidas nesta plataforma.' : 'As instruções de pagamento serão exibidas nesta plataforma.'}</span></div></div>
+                <div className="payment-security-note"><WalletCards size={18} /><span>{form.paymentMethod === 'creditCard' && mode === 'subscription' ? 'A primeira tentativa será feita hoje; as próximas cobranças serão mensais no mesmo dia.' : form.paymentMethod === 'creditCard' ? 'Os dados do cartão são enviados ao Asaas pela API e descartados após o envio.' : mode === 'subscription' ? 'As instruções de cada ciclo serão exibidas nesta plataforma.' : 'As instruções de pagamento serão exibidas nesta plataforma.'}</span></div></div>
             {mutation.isError && <div className="form-error"><CircleAlert size={17} /> {mutation.error.message}</div>}
             <div className="form-footer"><span><ShieldCheck size={16} /> Dados enviados com segurança ao backend</span><button className="button button-primary" type="submit" disabled={mutation.isPending}>{mutation.isPending ? <><span className="button-spinner" /> Criando...</> : <>{mode === 'subscription' ? 'Criar assinatura' : 'Criar cobrança'} <ArrowRight size={17} /></>}</button></div>
         </form>
     </section>
 }
-
-const billingCycles: { value: BillingCycle; label: string }[] = [
-    { value: 'weekly', label: 'Semanal' },
-    { value: 'biweekly', label: 'Quinzenal' },
-    { value: 'monthly', label: 'Mensal' },
-    { value: 'bimonthly', label: 'Bimestral' },
-    { value: 'quarterly', label: 'Trimestral' },
-    { value: 'semiannually', label: 'Semestral' },
-    { value: 'yearly', label: 'Anual' },
-]
 
 function CreditCardFields({ card, update }: { card: CardFormValues; update: (field: keyof CardFormValues, value: string) => void }) {
     return <div className="form-section card-entry-section">
@@ -319,8 +417,8 @@ function SubscriptionRow({ subscription }: { subscription: Subscription }) {
     }
 
     return <>
-        <tr><td><strong className="customer-name">{subscription.customerName}</strong><span className="table-subtext">{subscription.customerEmail}</span></td><td>{cycleLabel(subscription.cycle)}<span className="table-subtext method-cell">{methodIcon(subscription.paymentMethod)}{methodLabel(subscription.paymentMethod)}</span></td><td>{formatDate(subscription.nextDueDate)}</td><td><StatusBadge status={subscription.status} /></td><td><div className="inline-value"><span>R$</span><input aria-label={`Novo valor para ${subscription.customerName}`} type="number" min="0.01" max="9999999.99" step="0.01" value={value} disabled={!canEdit} onChange={(event) => setValue(event.target.value)} /><button className="icon-button" type="button" title="Salvar valor para os próximos ciclos" aria-label={`Salvar valor para ${subscription.customerName}`} disabled={!canEdit || updateMutation.isPending || Number(value) === subscription.value} onClick={() => updateMutation.mutate()}><Save size={15} /></button></div>{updateMutation.isError && <span className="inline-error">{updateMutation.error.message}</span>}</td><td><div className="subscription-actions"><button className="icon-button cancel-button" type="button" title="Cancelar assinatura" aria-label={`Cancelar assinatura de ${subscription.customerName}`} disabled={['CREATING', 'CREATION_FAILED', 'INACTIVE', 'DELETED', 'EXPIRED'].includes(subscription.status) || cancelMutation.isPending} onClick={cancel}><Ban size={16} /></button></div></td></tr>
-        <tr className="cycle-row"><td colSpan={6}><details className="cycle-details"><summary>Cobranças geradas: {subscription.payments.length}</summary>{subscription.payments.length === 0 ? <p>Nenhuma cobrança de ciclo recebida ainda.</p> : <div className="cycle-list">{subscription.payments.map((payment) => <div className="cycle-item" key={payment.id}><span>{formatDate(payment.dueDate)}</span><StatusBadge status={payment.status} /><strong>{currency.format(payment.value)}</strong>{payment.pixQrCodeUrl && <img className="cycle-qr" src={payment.pixQrCodeUrl} alt="QR Code PIX" />}{payment.pixCopyPaste && <CopyButton value={payment.pixCopyPaste} label="Copiar PIX" />}{payment.bankSlipIdentificationField && <><code className="cycle-digitable-line">{payment.bankSlipIdentificationField}</code><CopyButton value={payment.bankSlipIdentificationField} label="Copiar linha digitável" /></>}{payment.bankSlipUrl && <a className="icon-button" href={payment.bankSlipUrl} target="_blank" rel="noreferrer" aria-label="Abrir PDF do boleto" title="Abrir PDF do boleto"><FileText size={15} /></a>}</div>)}</div>}</details></td></tr>
+        <tr><td><strong className="customer-name">{subscription.customerName}</strong><span className="table-subtext">{subscription.customerEmail}</span></td><td>{subscription.billingDay ? `Mensal, dia ${String(subscription.billingDay).padStart(2, '0')}` : cycleLabel(subscription.cycle)}<span className="table-subtext method-cell">{methodIcon(subscription.paymentMethod)}{methodLabel(subscription.paymentMethod)}</span></td><td>{formatDate(subscription.nextDueDate)}</td><td><StatusBadge status={subscription.status} />{subscription.errorMessage && <span className="table-subtext error-message">{subscription.errorMessage}</span>}</td><td><div className="inline-value"><span>R$</span><input aria-label={`Novo valor para ${subscription.customerName}`} type="number" min="0.01" max="9999999.99" step="0.01" value={value} disabled={!canEdit} onChange={(event) => setValue(event.target.value)} /><button className="icon-button" type="button" title="Salvar valor para os próximos ciclos" aria-label={`Salvar valor para ${subscription.customerName}`} disabled={!canEdit || updateMutation.isPending || Number(value) === subscription.value} onClick={() => updateMutation.mutate()}><Save size={15} /></button></div>{updateMutation.isError && <span className="inline-error">{updateMutation.error.message}</span>}</td><td><div className="subscription-actions"><button className="icon-button cancel-button" type="button" title="Cancelar assinatura" aria-label={`Cancelar assinatura de ${subscription.customerName}`} disabled={['CREATING', 'CREATION_FAILED', 'INACTIVE', 'DELETED', 'EXPIRED'].includes(subscription.status) || cancelMutation.isPending} onClick={cancel}><Ban size={16} /></button></div></td></tr>
+        <tr className="cycle-row"><td colSpan={6}><details className="cycle-details"><summary>Cobranças geradas: {subscription.payments.length}</summary>{subscription.payments.length === 0 ? <p>Nenhuma cobrança de ciclo recebida ainda.</p> : <div className="cycle-list">{subscription.payments.map((payment) => <div className="cycle-item" key={payment.id}><span>{formatDate(payment.dueDate)}</span><StatusBadge status={payment.status} /><strong>{currency.format(payment.value)}</strong>{payment.errorMessage && <span className="inline-error">{payment.errorMessage}</span>}{payment.pixQrCodeUrl && <img className="cycle-qr" src={payment.pixQrCodeUrl} alt="QR Code PIX" />}{payment.pixCopyPaste && <CopyButton value={payment.pixCopyPaste} label="Copiar PIX" />}{payment.bankSlipIdentificationField && <><code className="cycle-digitable-line">{payment.bankSlipIdentificationField}</code><CopyButton value={payment.bankSlipIdentificationField} label="Copiar linha digitável" /></>}{payment.bankSlipUrl && <a className="icon-button" href={payment.bankSlipUrl} target="_blank" rel="noreferrer" aria-label="Abrir PDF do boleto" title="Abrir PDF do boleto"><FileText size={15} /></a>}</div>)}</div>}</details></td></tr>
     </>
 }
 
@@ -336,9 +434,10 @@ export function PaymentDetailsPage() {
         <div className="details-layout"><div className="details-main">
             <div className="amount-panel"><div><span className="metric-label">VALOR TOTAL</span><strong>{currency.format(payment.value)}</strong></div><div className="amount-panel-meta"><span>{methodIcon(payment.paymentMethod)} {methodLabel(payment.paymentMethod)}</span><span><CalendarDays size={15} /> Vence em {formatDate(payment.dueDate)}</span></div></div>
             <PaymentInstructions payment={payment} />
-            <div className="invoice-row"><div className="invoice-icon"><FileText size={19} /></div><div className="invoice-copy"><strong>Nota fiscal de serviço</strong><span>{invoiceLabel(payment.invoiceStatus)}</span></div>{payment.invoicePdfUrl && <a className="icon-button" href={payment.invoicePdfUrl} target="_blank" rel="noreferrer" title="Abrir PDF da NFS-e" aria-label="Abrir PDF da NFS-e"><ExternalLink size={16} /></a>}</div>
+            {payment.errorMessage && <div className="form-error" role="alert"><CircleAlert size={17} /> {payment.errorMessage}</div>}
+            <div className="invoice-row"><div className="invoice-icon"><FileText size={19} /></div><div className="invoice-copy"><strong>Nota fiscal de serviço</strong><span>{invoiceLabel(payment.invoiceStatus, payment.invoiceWorkflowStatus)}</span></div>{payment.invoicePdfUrl && <a className="icon-button" href={payment.invoicePdfUrl} target="_blank" rel="noreferrer" title="Abrir PDF da NFS-e" aria-label="Abrir PDF da NFS-e"><ExternalLink size={16} /></a>}</div>
         </div><aside className="details-side"><div className="side-heading"><h2>Atividade</h2><button className="icon-button" type="button" aria-label="Atualizar status" title="Atualizar status" onClick={() => query.refetch()}><RefreshCw size={15} /></button></div>
-                <div className="timeline"><div className="timeline-item complete"><span className="timeline-dot"><Check size={11} /></span><div><strong>Cobrança criada</strong><small>{formatDateTime(payment.createdAt)}</small></div></div><div className={`timeline-item${finalStatuses.has(payment.status) ? ' complete' : ' current'}`}><span className="timeline-dot">{finalStatuses.has(payment.status) ? <Check size={11} /> : <Clock3 size={11} />}</span><div><strong>{statusLabel(payment.status)}</strong><small>{finalStatuses.has(payment.status) ? 'Atualizado pelo webhook Asaas' : 'Aguardando confirmação do pagamento'}</small></div></div>{payment.invoiceStatus && <div className={`timeline-item${payment.invoiceStatus === 'AUTHORIZED' ? ' complete' : ''}`}><span className="timeline-dot"><FileText size={11} /></span><div><strong>NFS-e: {invoiceLabel(payment.invoiceStatus)}</strong><small>Atualização recebida da Asaas</small></div></div>}</div>
+                <div className="timeline"><div className="timeline-item complete"><span className="timeline-dot"><Check size={11} /></span><div><strong>Cobrança criada</strong><small>{formatDateTime(payment.createdAt)}</small></div></div><div className={`timeline-item${finalStatuses.has(payment.status) ? ' complete' : ' current'}`}><span className="timeline-dot">{finalStatuses.has(payment.status) ? <Check size={11} /> : <Clock3 size={11} />}</span><div><strong>{statusLabel(payment.status)}</strong><small>{finalStatuses.has(payment.status) ? 'Atualizado pelo webhook Asaas' : 'Aguardando confirmação do pagamento'}</small></div></div>{(payment.invoiceStatus || payment.invoiceWorkflowStatus) && <div className={`timeline-item${payment.invoiceStatus === 'AUTHORIZED' ? ' complete' : ''}`}><span className="timeline-dot"><FileText size={11} /></span><div><strong>NFS-e: {invoiceLabel(payment.invoiceStatus, payment.invoiceWorkflowStatus)}</strong><small>Atualização recebida da Asaas</small></div></div>}</div>
                 {!finalStatuses.has(payment.status) && <p className="polling-note"><span className="pulse-dot" /> Atualização automática a cada 5 segundos</p>}<div className="provider-note"><ShieldCheck size={16} /><span>O status é sincronizado por webhook e salvo nesta aplicação.</span></div>
             </aside></div>
     </section>
@@ -374,7 +473,11 @@ function methodIcon(method: string) { if (method === 'pix') return <QrCode size=
 function methodLabel(method: string) { return ({ undefined: 'Método legado', pix: 'PIX', boleto: 'Boleto', creditCard: 'Cartão de crédito' } as Record<string, string>)[method] ?? method }
 function cycleLabel(cycle: string) { return ({ weekly: 'Semanal', biweekly: 'Quinzenal', monthly: 'Mensal', bimonthly: 'Bimestral', quarterly: 'Trimestral', semiannually: 'Semestral', yearly: 'Anual' } as Record<string, string>)[cycle] ?? cycle }
 function statusLabel(status: string) { return ({ PENDING: 'Aguardando pagamento', CONFIRMED: 'Pagamento confirmado', RECEIVED: 'Pagamento recebido', RECEIVED_IN_CASH: 'Recebido em dinheiro', OVERDUE: 'Vencido', REFUNDED: 'Estornado', REFUND_REQUESTED: 'Estorno solicitado', CHARGEBACK: 'Contestado', DELETED: 'Removido', CREATING: 'Criando cobrança', CREATION_FAILED: 'Falha ao criar', ACTIVE: 'Ativa', INACTIVE: 'Cancelada', EXPIRED: 'Expirada', AWAITING_RISK_ANALYSIS: 'Em análise', PROCESSING: 'Processando' } as Record<string, string>)[status] ?? status.replaceAll('_', ' ').toLocaleLowerCase('pt-BR') }
-function invoiceLabel(status?: string | null) { return !status ? 'Será agendada após a confirmação do pagamento.' : ({ CONFIGURATION_REQUIRED: 'Aguardando configuração fiscal', SCHEDULING: 'Agendando emissão', SCHEDULE_FAILED: 'Falha no agendamento', SCHEDULED: 'Agendada, aguardando autorização municipal', AUTHORIZED: 'Autorizada', ERROR: 'Erro de autorização' } as Record<string, string>)[status] ?? status }
+function invoiceLabel(status?: string | null, workflowStatus?: string | null) {
+    if (status) return ({ SCHEDULED: 'Agendada, aguardando envio à prefeitura', AUTHORIZED: 'Emitida', ERROR: 'Erro na nota fiscal' } as Record<string, string>)[status] ?? status
+    if (workflowStatus) return ({ CONFIGURATION_REQUIRED: 'Aguardando configuração fiscal', SCHEDULING: 'Agendando emissão', SCHEDULE_FAILED: 'Falha no agendamento' } as Record<string, string>)[workflowStatus] ?? workflowStatus
+    return 'Será agendada após a confirmação do pagamento.'
+}
 function digitsOnly(value: string) { return value.replace(/\D/g, '') }
 function formatPostalCode(value: string) { const digits = digitsOnly(value).slice(0, 8); return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits }
 function customerAddress(customer: Customer) {

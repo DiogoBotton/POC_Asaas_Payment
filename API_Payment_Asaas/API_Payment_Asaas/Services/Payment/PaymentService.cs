@@ -100,6 +100,9 @@ public sealed class PaymentService(
         {
             payment.Status = PaymentStatus.CREATION_FAILED;
             payment.StatusUnknown = null;
+            payment.ErrorMessage = exception is AsaasApiException asaasException
+                ? asaasException.UserMessage
+                : "Não foi possível criar a cobrança na Asaas. Consulte os logs para mais detalhes.";
             await dbContext.SaveChangesAsync(cancellationToken);
             throw;
         }
@@ -160,12 +163,13 @@ public sealed class PaymentService(
                 payment.PixCopyPaste,
                 payment.PixQrCodeUrl,
                 null,
-                payment.Invoice == null ? null : payment.Invoice.Status,
+                payment.Invoice == null ? null : payment.Invoice.AsaasStatus,
+                payment.Invoice == null ? null : payment.Invoice.WorkflowStatus,
                 payment.Invoice == null ? null : payment.Invoice.PdfUrl,
                 payment.Invoice == null ? null : payment.Invoice.XmlUrl,
                 payment.CreatedAt,
                 payment.StatusUnknown,
-                payment.Invoice == null ? null : payment.Invoice.StatusUnknown))
+                payment.ErrorMessage))
             .ToListAsync(cancellationToken);
 
         return payments;
@@ -235,12 +239,13 @@ public sealed class PaymentService(
         payment.PixCopyPaste,
         payment.PixQrCodeUrl,
         threeDSecureChallengeUrl,
-        payment.Invoice?.Status,
+        payment.Invoice?.AsaasStatus,
+        payment.Invoice?.WorkflowStatus,
         payment.Invoice?.PdfUrl,
         payment.Invoice?.XmlUrl,
         payment.CreatedAt,
         payment.StatusUnknown,
-        payment.Invoice?.StatusUnknown);
+        payment.ErrorMessage);
 
     private string GetRemoteIp()
     {

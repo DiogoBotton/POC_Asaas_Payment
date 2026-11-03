@@ -10,9 +10,6 @@ public static class AsaasStatusParser
     public static (SubscriptionStatus Status, string? StatusUnknown) ParseSubscriptionStatus(string? value) =>
         Parse(value, SubscriptionStatus.UNKNOWN);
 
-    public static (InvoiceStatus Status, string? StatusUnknown) ParseInvoiceStatus(string? value) =>
-        Parse(value, InvoiceStatus.UNKNOWN);
-
     private static (TStatus Status, string? StatusUnknown) Parse<TStatus>(string? value, TStatus unknown)
         where TStatus : struct, Enum
     {

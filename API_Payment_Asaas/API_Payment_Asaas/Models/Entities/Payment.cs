@@ -12,6 +12,7 @@ public sealed class Payment
     public PaymentMethod PaymentMethod { get; set; }
     public PaymentStatus Status { get; set; }
     public string? StatusUnknown { get; set; }
+    public string? ErrorMessage { get; set; }
     public DateOnly DueDate { get; set; }
     public string? BankSlipUrl { get; set; }
     public string? BankSlipIdentificationField { get; set; }

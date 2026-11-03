@@ -25,25 +25,39 @@ public sealed class AsaasClient : IAsaasClient
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("API-Payment-Asaas/1.0");
     }
 
-    public bool CanScheduleInvoice =>
-        CanUseSandboxFiscalDefaults ||
-        (!string.IsNullOrWhiteSpace(_options.Invoice.ServiceDescription) &&
-         _options.Invoice.Observations is not null &&
-         (!string.IsNullOrWhiteSpace(_options.Invoice.MunicipalServiceId) ||
-          !string.IsNullOrWhiteSpace(_options.Invoice.MunicipalServiceCode)) &&
-         !string.IsNullOrWhiteSpace(_options.Invoice.MunicipalServiceName) &&
-         _options.Invoice.RetainIss.HasValue &&
-         _options.Invoice.Iss.HasValue &&
-         _options.Invoice.Pis.HasValue &&
-         _options.Invoice.Cofins.HasValue &&
-         _options.Invoice.Csll.HasValue &&
-         _options.Invoice.Inss.HasValue &&
-         _options.Invoice.Ir.HasValue);
+    public async Task<AsaasMunicipalServicesResult> GetMunicipalServicesAsync(
+        int offset,
+        int limit,
+        string? description,
+        CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+        if (offset < 0 || limit is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), "A paginação deve usar offset não negativo e limite entre 1 e 100.");
+        }
 
-    private bool CanUseSandboxFiscalDefaults =>
-        _options.Invoice.UseFirstMunicipalService &&
-        Uri.TryCreate(_options.BaseUrl, UriKind.Absolute, out var baseUri) &&
-        baseUri.Host.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
+        var path = $"fiscalInfo/services?offset={offset}&limit={limit}";
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            path += $"&description={Uri.EscapeDataString(description.Trim())}";
+        }
+
+        var response = await SendAsync<AsaasMunicipalServicesResponse>(
+            _httpClient.GetAsync(path, cancellationToken),
+            cancellationToken);
+        var data = response.Data?.Select(service => new AsaasMunicipalServiceResult(
+            service.Id,
+            service.Description,
+            service.IssTax)).ToList() ?? [];
+
+        return new AsaasMunicipalServicesResult(
+            response.Offset,
+            response.Limit,
+            response.TotalCount,
+            response.HasMore,
+            data);
+    }
 
     public async Task<AsaasCustomerResult> CreateCustomerAsync(
         CustomerProfile customer,
@@ -340,46 +354,10 @@ public sealed class AsaasClient : IAsaasClient
         Guid localInvoiceId,
         string paymentId,
         decimal value,
-        string? serviceDescription,
+        AsaasInvoiceSettings settings,
         CancellationToken cancellationToken)
     {
         EnsureConfigured();
-        if (!CanScheduleInvoice)
-        {
-            throw new InvalidOperationException("Configure os dados fiscais obrigatórios da NFS-e antes de agendar a emissão.");
-        }
-
-        var invoiceOptions = _options.Invoice;
-        var municipalServiceId = invoiceOptions.MunicipalServiceId;
-        var municipalServiceCode = invoiceOptions.MunicipalServiceCode;
-        var municipalServiceName = invoiceOptions.MunicipalServiceName;
-        var iss = invoiceOptions.Iss;
-        AsaasMunicipalServiceResponse? municipalService = null;
-        if (CanUseSandboxFiscalDefaults)
-        {
-            municipalService = await GetFirstMunicipalServiceAsync(cancellationToken)
-                ?? throw new InvalidOperationException("A lista de serviços municipais da Asaas está vazia.");
-            municipalServiceId = municipalService.Id;
-            municipalServiceCode = null;
-            municipalServiceName = municipalService.Description;
-            iss = municipalService.IssTax ?? iss ?? 0m;
-        }
-
-        if (string.IsNullOrWhiteSpace(municipalServiceId) && string.IsNullOrWhiteSpace(municipalServiceCode))
-        {
-            throw new InvalidOperationException("Não foi encontrado um serviço municipal único correspondente à descrição configurada.");
-        }
-
-        if (!iss.HasValue)
-        {
-            throw new InvalidOperationException("A alíquota de ISS não foi configurada nem retornada pelo serviço municipal.");
-        }
-
-        var effectiveDescription = !string.IsNullOrWhiteSpace(serviceDescription)
-            ? serviceDescription.Trim()
-            : !string.IsNullOrWhiteSpace(invoiceOptions.ServiceDescription)
-                ? invoiceOptions.ServiceDescription
-                : municipalService?.Description;
         var invoiceRequest = new Dictionary<string, object?>
         {
             ["payment"] = paymentId,
@@ -387,47 +365,27 @@ public sealed class AsaasClient : IAsaasClient
             ["deductions"] = 0m,
             ["effectiveDate"] = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             ["externalReference"] = localInvoiceId.ToString(),
-            ["observations"] = invoiceOptions.Observations ?? string.Empty
+            ["observations"] = settings.Observations,
+            ["serviceDescription"] = settings.ServiceDescription,
+            ["municipalServiceId"] = settings.MunicipalServiceId,
+            ["municipalServiceName"] = settings.MunicipalServiceName
         };
-
-        AddIfConfigured(invoiceRequest, "serviceDescription", effectiveDescription);
-        if (!string.IsNullOrWhiteSpace(municipalServiceId))
+        invoiceRequest["taxes"] = new
         {
-            invoiceRequest["municipalServiceId"] = municipalServiceId;
-        }
-        else
-        {
-            invoiceRequest["municipalServiceCode"] = municipalServiceCode;
-        }
-        invoiceRequest["municipalServiceName"] = municipalServiceName;
-
-        var taxes = new Dictionary<string, object?>();
-        AddIfConfigured(taxes, "retainIss", invoiceOptions.RetainIss ?? false);
-        AddIfConfigured(taxes, "iss", iss);
-        AddIfConfigured(taxes, "pis", invoiceOptions.Pis ?? (CanUseSandboxFiscalDefaults ? 0m : null));
-        AddIfConfigured(taxes, "cofins", invoiceOptions.Cofins ?? (CanUseSandboxFiscalDefaults ? 0m : null));
-        AddIfConfigured(taxes, "csll", invoiceOptions.Csll ?? (CanUseSandboxFiscalDefaults ? 0m : null));
-        AddIfConfigured(taxes, "inss", invoiceOptions.Inss ?? (CanUseSandboxFiscalDefaults ? 0m : null));
-        AddIfConfigured(taxes, "ir", invoiceOptions.Ir ?? (CanUseSandboxFiscalDefaults ? 0m : null));
-        if (taxes.Count > 0)
-        {
-            invoiceRequest["taxes"] = taxes;
-        }
+            retainIss = settings.RetainIss,
+            iss = settings.Iss,
+            pis = settings.Pis,
+            cofins = settings.Cofins,
+            csll = settings.Csll,
+            inss = settings.Inss,
+            ir = settings.Ir
+        };
 
         var response = await SendAsync<AsaasInvoiceResponse>(
             _httpClient.PostAsJsonAsync("invoices", invoiceRequest, cancellationToken),
             cancellationToken);
 
-        var status = AsaasStatusParser.ParseInvoiceStatus(response.Status);
-        return new AsaasInvoiceResult(response.Id, status.Status, status.StatusUnknown, response.PdfUrl, response.XmlUrl);
-    }
-
-    private async Task<AsaasMunicipalServiceResponse?> GetFirstMunicipalServiceAsync(CancellationToken cancellationToken)
-    {
-        var response = await SendAsync<AsaasMunicipalServicesResponse>(
-            _httpClient.GetAsync("fiscalInfo/services?offset=0&limit=1", cancellationToken),
-            cancellationToken);
-        return response.Data?.FirstOrDefault();
+        return new AsaasInvoiceResult(response.Id, response.Status, response.PdfUrl, response.XmlUrl);
     }
 
     private static void AddIfConfigured(IDictionary<string, object?> values, string key, object? value)
@@ -466,6 +424,7 @@ public sealed class AsaasClient : IAsaasClient
         CancellationToken cancellationToken)
     {
         var errorCodes = new List<string>();
+        var errorDescriptions = new List<string>();
         try
         {
             await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -476,13 +435,24 @@ public sealed class AsaasClient : IAsaasClient
             {
                 foreach (var error in errors.EnumerateArray())
                 {
-                    if (error.ValueKind == JsonValueKind.Object &&
-                        error.TryGetProperty("code", out var code) &&
+                    if (error.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    if (error.TryGetProperty("code", out var code) &&
                         code.ValueKind == JsonValueKind.String &&
                         code.GetString() is { Length: <= 100 } errorCode &&
                         errorCode.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-' or '.'))
                     {
                         errorCodes.Add(errorCode);
+                    }
+
+                    if (error.TryGetProperty("description", out var description) &&
+                        description.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(description.GetString()))
+                    {
+                        errorDescriptions.Add(description.GetString()!.Trim());
                     }
                 }
             }
@@ -491,7 +461,7 @@ public sealed class AsaasClient : IAsaasClient
         {
         }
 
-        return new AsaasApiException(response.StatusCode, errorCodes);
+        return new AsaasApiException(response.StatusCode, errorCodes, errorDescriptions);
     }
 
     private static string ToAsaasCycle(BillingCycle cycle) => cycle switch

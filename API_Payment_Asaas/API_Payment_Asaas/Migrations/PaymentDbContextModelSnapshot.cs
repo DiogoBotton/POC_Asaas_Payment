@@ -3,20 +3,17 @@ using System;
 using API_Payment_Asaas.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace API_Payment_Asaas.Data.Migrations
+namespace API_Payment_Asaas.Migrations
 {
     [DbContext(typeof(PaymentDbContext))]
-    [Migration("20261014191623_RemoveSubscriptionConfiguration")]
-    partial class RemoveSubscriptionConfiguration
+    partial class PaymentDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -73,6 +70,18 @@ namespace API_Payment_Asaas.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("AddressComplement")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("AddressNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("AsaasCustomerId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -98,12 +107,81 @@ namespace API_Payment_Asaas.Data.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
+                    b.Property<string>("PostalCode")
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)");
+
+                    b.Property<string>("Province")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AsaasCustomerId")
                         .IsUnique();
 
                     b.ToTable("Customers");
+                });
+
+            modelBuilder.Entity("API_Payment_Asaas.Models.FiscalConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Cofins")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal>("Csll")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal>("Inss")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal>("Ir")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal>("Iss")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<string>("MunicipalServiceId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("MunicipalServiceName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("Observations")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<decimal>("Pis")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<bool>("RetainIss")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ServiceDescription")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("FiscalConfigurations");
                 });
 
             modelBuilder.Entity("API_Payment_Asaas.Models.Invoice", b =>
@@ -115,6 +193,11 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<string>("AsaasInvoiceId")
                         .HasColumnType("text");
 
+                    b.Property<string>("AsaasStatus")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("Status");
+
                     b.Property<DateTimeOffset?>("AuthorizedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -123,6 +206,49 @@ namespace API_Payment_Asaas.Data.Migrations
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
+
+                    b.Property<decimal?>("FiscalCofins")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal?>("FiscalCsll")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal?>("FiscalInss")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal?>("FiscalIr")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal?>("FiscalIss")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<string>("FiscalMunicipalServiceId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("FiscalMunicipalServiceName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("FiscalObservations")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<decimal?>("FiscalPis")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<bool?>("FiscalRetainIss")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FiscalServiceDescription")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<Guid>("PaymentId")
                         .HasColumnType("uuid");
@@ -133,8 +259,7 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<int>("ScheduleAttempts")
                         .HasColumnType("integer");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
+                    b.Property<string>("WorkflowStatus")
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
@@ -177,6 +302,10 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<DateOnly>("DueDate")
                         .HasColumnType("date");
 
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<string>("PaymentMethod")
                         .IsRequired()
                         .HasColumnType("text");
@@ -191,6 +320,9 @@ namespace API_Payment_Asaas.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<string>("StatusUnknown")
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("SubscriptionId")
                         .HasColumnType("uuid");
@@ -220,6 +352,9 @@ namespace API_Payment_Asaas.Data.Migrations
                     b.Property<string>("AsaasSubscriptionId")
                         .HasColumnType("text");
 
+                    b.Property<int?>("BillingDay")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset?>("CanceledAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -241,6 +376,10 @@ namespace API_Payment_Asaas.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<DateOnly>("NextDueDate")
                         .HasColumnType("date");
 
@@ -252,6 +391,9 @@ namespace API_Payment_Asaas.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<string>("StatusUnknown")
+                        .HasColumnType("text");
 
                     b.Property<decimal>("Value")
                         .HasPrecision(18, 2)

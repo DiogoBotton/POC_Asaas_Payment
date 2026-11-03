@@ -9,9 +9,11 @@ public sealed class Subscription
     public decimal Value { get; set; }
     public BillingCycle Cycle { get; set; } = BillingCycle.Monthly;
     public PaymentMethod PaymentMethod { get; set; }
+    public int? BillingDay { get; set; }
     public required string Description { get; set; }
     public SubscriptionStatus Status { get; set; }
     public string? StatusUnknown { get; set; }
+    public string? ErrorMessage { get; set; }
     public DateOnly NextDueDate { get; set; }
     public DateOnly? CancellationCutoffDate { get; set; }
     public DateTimeOffset? CanceledAt { get; set; }

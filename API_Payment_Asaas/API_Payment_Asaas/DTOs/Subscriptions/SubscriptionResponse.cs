@@ -13,4 +13,6 @@ public sealed record SubscriptionResponse(
     DateOnly NextDueDate,
     DateTimeOffset CreatedAt,
     IReadOnlyList<SubscriptionChargeResponse> Payments,
-    string? StatusUnknown);
+    string? StatusUnknown,
+    int? BillingDay,
+    string? ErrorMessage);
